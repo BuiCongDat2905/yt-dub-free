@@ -1,4 +1,4 @@
-﻿import { audioCache } from "@/lib/cache/audioCache";
+import { audioCache } from "@/lib/cache/audioCache";
 import { translationCache } from "@/lib/cache/idb";
 import { ALLOWED_HOST, APP_NAME, BADGE_ID, PREFERRED_CAPTION_LANG, TARGET_LANG } from "@/lib/config";
 import { DubEngine } from "@/lib/player/engine";
@@ -38,7 +38,6 @@ const HOST_STYLE = "position:fixed;right:16px;bottom:88px;z-index:2147483000;";
 const CUE_TIMEOUT_MS = 25000;
 const PANEL_TIMEOUT_MS = 12000;
 const LIVE_LAG_SECONDS = 1.2;
-/** Báº­t thá»§ cÃ´ng Ä‘á»ƒ test nhÃ¡nh live caption; build phÃ¡t hÃ nh Ä‘á»ƒ false. */
 const FORCE_LIVE_MODE = false;
 const SHADOW_HTML = `
   <style>
@@ -112,7 +111,7 @@ function render(): void {
   button.dataset.busy = String(busy);
   const label = button.querySelector(".label");
   if (label) {
-    if (busy) label.textContent = "Äang chuáº©n bá»‹â€¦";
+    if (busy) label.textContent = "Đang chuẩn bị…";
     else label.textContent = enabled ? "Dub: ON" : "Dub: OFF";
   }
 }
@@ -210,9 +209,8 @@ async function loadCues(
 
   const fromPageTrack = await tryTrack(activeTrack, "timedtext");
   if (fromPageTrack) return { cues: fromPageTrack, source: "timedtext", diagnostics };
-  if (!activeTrack) diagnostics.push({ source: "timedtext", ok: false, error: "khÃ´ng cÃ³ caption track" });
+  if (!activeTrack) diagnostics.push({ source: "timedtext", ok: false, error: "không có caption track" });
 
-  // Panel transcript: nhanh vÃ  á»•n Ä‘á»‹nh nháº¥t khi timedtext bá»‹ cháº·n.
   try {
     const cues = await readTranscriptFromPage(document, PANEL_TIMEOUT_MS);
     diagnostics.push({ source: "transcript-panel", ok: true, cues: cues.length });
@@ -256,7 +254,7 @@ async function loadCues(
   return { cues: [], source: "", diagnostics };
 }
 
-/** Dá»± phÃ²ng cuá»‘i: Ä‘á»c phá»¥ Ä‘á» Ä‘ang hiá»‡n trÃªn player, dá»‹ch + TTS ngay khi cÃ¢u xuáº¥t hiá»‡n. */
+/** Dự phòng cuối: đọc phụ đề đang hiện trên player, dịch + TTS ngay khi câu xuất hiện. */
 async function startLiveMode(
   video: HTMLVideoElement,
   videoId: string,
@@ -334,7 +332,7 @@ async function startLiveMode(
         liveAudio[index] = audio;
         await audioCache.set(`${TARGET_LANG}|${text}`, audio);
       } catch {
-        // engine sáº½ phÃ¡t im láº·ng cho cÃ¢u nÃ y
+        // engine sẽ phát im lặng cho câu này
       } finally {
         publish();
       }
@@ -348,7 +346,7 @@ async function startLiveMode(
 async function startDubbing(videoId: string): Promise<void> {
   const video = findVideoElement();
   if (!video) {
-    publishStatus({ videoId, error: "khÃ´ng tÃ¬m tháº¥y tháº» video" });
+    publishStatus({ videoId, error: "không tìm thấy thẻ video" });
     return;
   }
 
@@ -455,7 +453,6 @@ function sync(): void {
     delete document.documentElement.dataset.ytdubfree;
     return;
   }
-  // SPA Ä‘á»•i cháº¥t lÆ°á»£ng/param váº«n cÃ¹ng video: giá»¯ nguyÃªn phiÃªn lá»“ng tiáº¿ng Ä‘ang cháº¡y.
   if (videoId === currentVideo && enabled) {
     render();
     return;
@@ -531,5 +528,3 @@ export default defineContentScript({
     void init();
   },
 });
-
-
