@@ -55,6 +55,16 @@ export function extractInnertubeConfig(source: string): InnertubeConfig {
   };
 }
 
+/** YouTube percent-encode dấu `=` trong params (`%3D`); gửi nguyên bản sẽ bị 400. */
+export function normalizeTranscriptParams(value: string): string {
+  try {
+    const decoded = decodeURIComponent(value);
+    return decoded.includes("%") ? value : decoded;
+  } catch {
+    return value;
+  }
+}
+
 export function extractTranscriptParamsCandidates(source: string): string[] {
   const found = new Set<string>();
   const patterns = [
@@ -63,7 +73,7 @@ export function extractTranscriptParamsCandidates(source: string): string[] {
   ];
   for (const pattern of patterns) {
     for (const match of source.matchAll(pattern)) {
-      if (match[1]) found.add(match[1]);
+      if (match[1]) found.add(normalizeTranscriptParams(match[1]));
     }
   }
   return [...found];

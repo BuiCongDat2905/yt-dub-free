@@ -6,6 +6,7 @@ import {
   extractInnertubeConfig,
   extractTranscriptParams,
   extractTranscriptParamsCandidates,
+  normalizeTranscriptParams,
   parseTranscriptSegments,
   pickTranscriptParams,
 } from "../lib/youtube/transcriptInnertube.ts";
@@ -97,6 +98,27 @@ test("buildTranscriptParams tạo protobuf hợp lệ chứa videoId", () => {
   assert.ok(decoded.includes("dQw4w9WgXcQ"));
   assert.equal(decoded.charCodeAt(0), 0x0a);
   assert.equal(decoded.charCodeAt(1), 11);
+});
+
+test("normalizeTranscriptParams decode %3D bên trong params", () => {
+  const encoded =
+    "CgtSbTB0MUt3Rm1CdxISQ2dOaGMzSVNBbVZ1R2dBJTNEGAEqM2VuZ2FnZW1lbnQtcGFuZWwtc2VhcmNoYWJsZS10cmFuc2NyaXB0";
+  const decoded = normalizeTranscriptParams(encoded);
+  assert.notEqual(decoded, encoded, "phải giải mã %3D");
+  assert.ok(decoded.includes("="), "base64 padding phải thành dấu =");
+
+  const padded = decoded.padEnd(Math.ceil(decoded.length / 4) * 4, "=");
+  assert.ok(atob(padded).includes("Rm0t1KwFmBw"), "params phải chứa videoId");
+
+  assert.equal(normalizeTranscriptParams("abc123"), "abc123", "params sạch giữ nguyên");
+  assert.equal(normalizeTranscriptParams("%ZZ"), "%ZZ", "escape hỏng thì giữ nguyên");
+});
+
+test("extractTranscriptParamsCandidates trả params đã chuẩn hoá", () => {
+  const html = `<script>{"getTranscriptEndpoint":{"params":"CgtSbTB0MUt3Rm1CdxISQ2dOaGMzSVNBbVZ1R2dBJTNEGAEq"}}</script>`;
+  const [params] = extractTranscriptParamsCandidates(html);
+  assert.ok(params);
+  assert.ok(!params.includes("%3D"), "không được giữ %3D");
 });
 
 test("parseTranscriptSegments đọc runs, simpleText, bỏ segment rỗng", () => {
