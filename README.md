@@ -2,6 +2,8 @@
 
 Extension Chrome MV3 lồng tiếng video YouTube sang tiếng Việt, chạy hoàn toàn trong trình duyệt. Không server, không tài khoản, không API key, chi phí 0.
 
+Repo: https://github.com/BuiCongDat2905/yt-dub-free
+
 ![Popup cài đặt](docs/popup.png)
 
 ## Tính năng
@@ -39,6 +41,8 @@ Kết quả ở `.output/chrome-mv3`. Muốn file đóng gói: `npm run zip` →
 4. Chọn thư mục `D:\Ai20K\yt-dub-free\.output\chrome-mv3`.
 5. Mở một video YouTube, bấm badge **Dub: OFF** ở góc phải dưới player (hoặc `Alt+D`).
 
+Với Edge, bản build sẵn đã được copy vào `C:\Users\datco\EdgeExtensions\yt-dub-free` — chọn đúng thư mục đó khi bấm **Load unpacked** để extension không phụ thuộc thư mục `.output`.
+
 Lần đầu sẽ mất vài giây để lấy caption, dịch và tổng hợp giọng. Badge chuyển **Dub: ON** khi audio bắt đầu phát.
 
 ![Popup cài đặt](docs/popup.png)
@@ -64,6 +68,7 @@ caption/transcript → cắt câu → dịch VI → TTS → phát theo cue
 
 - `storage`: lưu cài đặt (`chrome.storage.sync`) và cache (IndexedDB).
 - Host: `www.youtube.com` (đọc trang/caption), `translate.googleapis.com` (dịch), `translate.google.com` (TTS).
+- Audio TTS tải qua **background service worker** rồi chuyển sang content script. Lý do: `translate.google.com/translate_tts` không trả header `Access-Control-Allow-Origin`, nên fetch trực tiếp từ content script bị CORS chặn.
 - Không gửi dữ liệu tới server nào của dự án. Không thu thập telemetry.
 
 ## Phát triển
