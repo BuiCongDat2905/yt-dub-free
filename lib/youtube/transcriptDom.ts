@@ -4,14 +4,13 @@ import { normalizeCues } from "../subtitle/parse.ts";
 
 const SEGMENT_SELECTOR = "ytd-transcript-segment-renderer";
 const TRANSCRIPT_BUTTON_TEXT = /transcript|bản ghi|bảng điểm|bảng ghi|lời thoại|字幕/i;
-const EXPAND_SELECTORS = [
+const EXPAND_SELECTOR = [
   "ytd-text-inline-expander #expand",
   "ytd-watch-metadata #expand",
   "tp-yt-paper-button#expand",
   "#description-inline-expander #expand",
-  "#expand-button",
   "#expand",
-];
+].join(", ");
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -40,11 +39,8 @@ function readSegments(doc: Document): Element[] {
 }
 
 export function collectPanelDiagnostics(doc: Document = document): PanelDiagnostics {
-  const buttons = Array.from(
-    doc.querySelectorAll<HTMLElement>("button, yt-button-shape button, a, tp-yt-paper-button"),
-  );
   const labels: string[] = [];
-  for (const element of buttons) {
+  for (const element of Array.from(doc.querySelectorAll<HTMLElement>("button, a, tp-yt-paper-button"))) {
     const label = `${element.textContent ?? ""} ${element.getAttribute("aria-label") ?? ""}`
       .replace(/\s+/g, " ")
       .trim();
@@ -56,7 +52,7 @@ export function collectPanelDiagnostics(doc: Document = document): PanelDiagnost
     lang: doc.documentElement.lang || "(none)",
     hasDescription: doc.querySelector("#description") !== null,
     hasExpander: doc.querySelector("ytd-text-inline-expander") !== null,
-    expandCandidates: doc.querySelectorAll(EXPAND_SELECTORS.join(", ")).length,
+    expandCandidates: doc.querySelectorAll(EXPAND_SELECTOR).length,
     transcriptSection: doc.querySelectorAll("ytd-video-description-transcript-section-renderer").length,
     transcriptRenderer: doc.querySelectorAll("ytd-transcript-renderer").length,
     segments: doc.querySelectorAll(SEGMENT_SELECTOR).length,
@@ -76,35 +72,27 @@ function pressElement(element: Element): void {
     const Ctor = type.startsWith("pointer") ? (globalThis.PointerEvent ?? MouseEvent) : MouseEvent;
     target.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true }));
   }
-  try {
-    target.click();
-    target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-  } catch {
-    // bỏ qua
-  }
+  target.click();
 }
 
 function expandDescription(doc: Document): void {
-  const expander = doc.querySelector("ytd-text-inline-expander");
-  const candidate = doc.querySelector<HTMLElement>(EXPAND_SELECTORS.join(", "));
+  const candidate = doc.querySelector<HTMLElement>(EXPAND_SELECTOR);
   if (candidate) pressElement(candidate);
-  else if (expander) pressElement(expander);
 }
 
 function findTranscriptButton(doc: Document): HTMLElement | null {
-  for (const label of [
+  const selectors = [
     "ytd-video-description-transcript-section-renderer button",
     "ytd-video-description-transcript-section-renderer yt-button-shape button",
     "ytd-video-description-transcript-section-renderer a",
-    "button[aria-label]",
     "yt-button-shape button",
     "button",
     "a",
-  ]) {
-    const candidates = Array.from(doc.querySelectorAll<HTMLElement>(label));
-    for (const element of candidates) {
-      const text = `${element.textContent ?? ""} ${element.getAttribute("aria-label") ?? ""}`;
-      if (TRANSCRIPT_BUTTON_TEXT.test(text)) return element;
+  ];
+  for (const selector of selectors) {
+    for (const element of Array.from(doc.querySelectorAll<HTMLElement>(selector))) {
+      const label = `${element.textContent ?? ""} ${element.getAttribute("aria-label") ?? ""}`;
+      if (TRANSCRIPT_BUTTON_TEXT.test(label)) return element;
     }
   }
   return null;
@@ -121,16 +109,16 @@ async function waitForSegments(doc: Document, timeoutMs: number): Promise<Elemen
 }
 
 /** Đọc transcript từ panel giao diện; lỗi kèm chẩn đoán DOM để sửa selector. */
-export async function readTranscriptFromPage(doc: Document = document, timeoutMs = 12000): Promise<Cue[]> {
+export async function readTranscriptFromPage(doc: Document = document, timeoutMs = 25000): Promise<Cue[]> {
   let nodes = readSegments(doc);
 
   if (nodes.length === 0) {
-    for (let attempt = 0; attempt < 3 && nodes.length === 0; attempt += 1) {
+    for (let attempt = 0; attempt < 2 && nodes.length === 0; attempt += 1) {
       expandDescription(doc);
-      await sleep(800);
+      await sleep(700);
       const button = findTranscriptButton(doc);
       if (button) pressElement(button);
-      nodes = await waitForSegments(doc, Math.max(3000, Math.floor(timeoutMs / 3)));
+      nodes = await waitForSegments(doc, Math.max(4000, Math.floor(timeoutMs / 2)));
     }
   }
 

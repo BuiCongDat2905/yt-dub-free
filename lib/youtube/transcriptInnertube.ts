@@ -57,9 +57,9 @@ export function extractInnertubeConfig(source: string): InnertubeConfig {
 
 /** YouTube percent-encode dấu `=` trong params (`%3D`); gửi nguyên bản sẽ bị 400. */
 export function normalizeTranscriptParams(value: string): string {
+  if (!value.includes("%")) return value;
   try {
-    const decoded = decodeURIComponent(value);
-    return decoded.includes("%") ? value : decoded;
+    return decodeURIComponent(value);
   } catch {
     return value;
   }
