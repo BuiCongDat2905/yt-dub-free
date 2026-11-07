@@ -29,6 +29,32 @@ export function isSentenceEnd(text: string): boolean {
   return SENTENCE_END.test(text.trim());
 }
 
+/**
+ * Nối hai mảnh caption, cắt phần chữ bị lặp ở chỗ ngắt.
+ * ASR hay trả "hello everyone" rồi "everyone welcome home" → "hello everyone welcome home".
+ */
+export function mergeCaptionText(base: string, addition: string): string {
+  const left = base.trim();
+  const right = addition.trim();
+  if (left === "") return right;
+  if (right === "") return left;
+  if (left.endsWith(right)) return left;
+
+  const leftWords = left.split(/\s+/);
+  const rightWords = right.split(/\s+/);
+  const maxOverlap = Math.min(leftWords.length, rightWords.length);
+
+  for (let size = maxOverlap; size >= 1; size -= 1) {
+    const tail = leftWords.slice(-size).join(" ").toLowerCase();
+    const head = rightWords.slice(0, size).join(" ").toLowerCase();
+    if (tail === head) {
+      const rest = rightWords.slice(size).join(" ");
+      return rest === "" ? left : `${left} ${rest}`;
+    }
+  }
+  return `${left} ${right}`;
+}
+
 function timeAtOffset(cue: Cue, offset: number): number {
   const length = Math.max(1, cue.text.length);
   const ratio = Math.min(1, Math.max(0, offset / length));
@@ -94,7 +120,7 @@ export function segmentCues(cues: Cue[], options: SegmentOptions = {}): Cue[] {
     }
 
     const gap = cue.start - buffer.end;
-    const joined = `${buffer.text} ${cue.text}`.trim();
+    const joined = mergeCaptionText(buffer.text, cue.text);
     const combinedDuration = cue.end - buffer.start;
     const mustBreak =
       gap >= limits.silenceGap ||
@@ -117,11 +143,12 @@ export function segmentCues(cues: Cue[], options: SegmentOptions = {}): Cue[] {
   for (const cue of split) {
     const previous = result[result.length - 1];
     const gap = previous ? cue.start - previous.end : Number.POSITIVE_INFINITY;
+    const mergedText = previous ? mergeCaptionText(previous.text, cue.text) : cue.text;
     const tiny = cue.text.length < limits.minChars || cue.end - cue.start < limits.minDuration;
-    const fits = previous ? previous.text.length + cue.text.length + 1 <= limits.maxChars : false;
+    const fits = previous ? mergedText.length <= limits.maxChars : false;
     const fitsDuration = previous ? cue.end - previous.start <= limits.maxDuration : false;
     if (previous && tiny && fits && fitsDuration && gap < limits.silenceGap && !isSentenceEnd(previous.text)) {
-      previous.text = `${previous.text} ${cue.text}`.trim();
+      previous.text = mergedText;
       previous.end = cue.end;
     } else {
       result.push({ ...cue });

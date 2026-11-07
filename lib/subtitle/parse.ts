@@ -32,7 +32,10 @@ export function cleanText(input: string): string {
   return decodeEntities(input.replace(TAG, "")).replace(WHITESPACE, " ").trim();
 }
 
-/** Sắp xếp, bỏ cue rỗng, bảo đảm end > start và không chồng lấn. */
+/**
+ * Sắp xếp, bỏ cue rỗng, bỏ cue lặp do caption cuộn (ASR hay phát lại cùng câu),
+ * bảo đảm end > start và không chồng lấn.
+ */
 export function normalizeCues(cues: Cue[]): Cue[] {
   const sorted = cues
     .map((cue) => ({
@@ -46,8 +49,26 @@ export function normalizeCues(cues: Cue[]): Cue[] {
   const out: Cue[] = [];
   for (const cue of sorted) {
     const previous = out[out.length - 1];
-    if (previous && cue.start < previous.end) {
-      previous.end = Math.max(previous.start + 0.05, cue.start);
+    if (previous) {
+      const sameText = previous.text === cue.text;
+      const overlapping = cue.start < previous.end - 0.01;
+      const rollingDuplicate =
+        overlapping && (previous.text.includes(cue.text) || cue.text.includes(previous.text));
+
+      // Chỉ coi là lặp khi hai cue chồng thời gian (caption ASR cuộn lại).
+      if (sameText && overlapping) {
+        previous.end = Math.max(previous.end, cue.end);
+        continue;
+      }
+      if (rollingDuplicate) {
+        // Giữ bản dài hơn để không mất chữ, gộp khoảng thời gian.
+        if (cue.text.length > previous.text.length) previous.text = cue.text;
+        previous.end = Math.max(previous.end, cue.end);
+        continue;
+      }
+      if (cue.start < previous.end) {
+        previous.end = Math.max(previous.start + 0.05, cue.start);
+      }
     }
     const end = cue.end > cue.start ? cue.end : cue.start + 0.05;
     out.push({ start: cue.start, end, text: cue.text });

@@ -65,6 +65,29 @@ test("normalizeCues sắp xếp, cắt chồng lấn, ép end > start", () => {
   assert.equal(cues[2].end > cues[2].start, true);
 });
 
+test("normalizeCues bỏ cue lặp do caption ASR cuộn lại", () => {
+  const cues = normalizeCues([
+    { start: 0, end: 2, text: "hello everyone" },
+    { start: 1.5, end: 3, text: "hello everyone" },
+    { start: 3, end: 4.5, text: "everyone welcome" },
+    { start: 4.5, end: 6, text: "back home" },
+  ]);
+
+  for (let index = 1; index < cues.length; index += 1) {
+    assert.notEqual(cues[index].text, cues[index - 1].text, "không được có text trùng liền nhau");
+  }
+  assert.equal(cues.some((cue) => cue.text === "hello everyone"), true);
+  assert.equal(cues.some((cue) => cue.text === "back home"), true);
+});
+
+test("normalizeCues giữ cue trùng chữ nếu không chồng thời gian", () => {
+  const cues = normalizeCues([
+    { start: 0, end: 1, text: "ok" },
+    { start: 1, end: 2, text: "ok" },
+  ]);
+  assert.equal(cues.length, 2, "hai câu nối tiếp thì không phải lặp");
+});
+
 test("pickTrack ưu tiên track người tạo khớp ngôn ngữ, rồi asr, rồi bất kỳ", () => {
   const asrEn = { baseUrl: "https://a", languageCode: "en", kind: "asr" };
   const manualEn = { baseUrl: "https://b", languageCode: "en" };

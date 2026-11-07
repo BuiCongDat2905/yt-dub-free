@@ -1,7 +1,27 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { isSentenceEnd, segmentCues } from "../lib/subtitle/segment.ts";
+import { isSentenceEnd, mergeCaptionText, segmentCues } from "../lib/subtitle/segment.ts";
+
+test("mergeCaptionText cắt chữ lặp ở chỗ ngắt", () => {
+  assert.equal(mergeCaptionText("hello everyone", "everyone welcome home"), "hello everyone welcome home");
+  assert.equal(mergeCaptionText("Xin chào", "chào các bạn"), "Xin chào các bạn");
+  assert.equal(mergeCaptionText("abc", "abc"), "abc");
+  assert.equal(mergeCaptionText("a b", "c d"), "a b c d");
+  assert.equal(mergeCaptionText("", "x"), "x");
+  assert.equal(mergeCaptionText("x", ""), "x");
+  assert.equal(mergeCaptionText("một hai ba", "ba bốn"), "một hai ba bốn");
+});
+
+test("segmentCues không lặp cụm khi caption chồng lấn", () => {
+  const cues = segmentCues([
+    cue(0, 1.5, "hôm nay chúng ta"),
+    cue(1.5, 3, "chúng ta sẽ học"),
+    cue(3, 4.5, "sẽ học về lồng tiếng."),
+  ]);
+  assert.equal(cues.length, 1);
+  assert.equal(cues[0]?.text, "hôm nay chúng ta sẽ học về lồng tiếng.");
+});
 
 const cue = (start, end, text) => ({ start, end, text });
 
