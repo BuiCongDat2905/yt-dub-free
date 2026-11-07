@@ -99,26 +99,76 @@ try {
   }, "tracks");
   console.log("tracks=ok");
 
-  await evaluate("document.getElementById('ytdubfree-badge').shadowRoot.querySelector('button').click()");
-  console.log("clicked badge");
-
   await sleep(1500);
   await evaluate("document.querySelector('video')?.play()");
   console.log("video.play()");
 
-  const finalStatus = await waitFor(async () => {
-    const status = await readDataset();
-    if (!status) return null;
-    if (status.error) return status;
-    const audio = status.stats?.audio ?? 0;
-    if (status.live) return (status.live.lines >= 3 && audio >= 1) ? status : null;
-    return audio > 0 ? status : null;
-  }, "runtime status", 150000);
+  const speed = Number(process.argv[3] ?? "1");
+  if (Number.isFinite(speed) && speed !== 1) {
+    await evaluate(`document.querySelector('video').playbackRate = ${speed}`);
+    console.log(`playbackRate=${speed}`);
+  }
 
-  console.log("--- dataset ---");
-  console.log(JSON.stringify(finalStatus, null, 2));
-  console.log(`--- console (${consoleLines.length}) ---`);
-  for (const line of consoleLines.slice(-15)) console.log(line.slice(0, 300));
+  const rect = await waitFor(
+    () =>
+      evaluate(
+        "(() => { const host = document.getElementById('ytdubfree-badge'); if (!host) return null; const r = host.getBoundingClientRect(); return r.width > 0 ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; })()",
+      ),
+    "badge visible",
+    20000,
+  );
+  const click = (type) =>
+    send("Input.dispatchMouseEvent", { type, x: rect.x, y: rect.y, button: "left", clickCount: 1 }, sessionId);
+  await click("mousePressed");
+  await click("mouseReleased");
+  console.log("clicked badge (trusted)");
+
+  const samples = [];
+  let firstStatus = null;
+  for (let step = 0; step < 45; step += 1) {
+    await sleep(1000);
+    const status = await readDataset();
+    if (!status) continue;
+    if (!firstStatus) {
+      firstStatus = status;
+      console.log(`first source=${status.source || "(none)"} diagnostics=${status.diagnostics?.length ?? 0}`);
+    }
+    if (status.error) {
+      samples.push({ error: status.error.slice(0, 120) });
+      break;
+    }
+    const live = status.live ?? {};
+    const debug = live.debug ?? {};
+    samples.push({
+      lines: live.lines ?? 0,
+      audio: status.stats?.audio ?? 0,
+      cuts: live.cuts ?? 0,
+      skips: live.skips ?? 0,
+      speaking: debug.speaking === true,
+      audioTime: debug.audioTime ?? -1,
+      rate: debug.rate ?? -1,
+    });
+    if ((live.lines ?? 0) >= 5 && (status.stats?.audio ?? 0) >= 3) break;
+  }
+
+  const label = speed === 1 ? "1x" : `${speed}x`;
+  console.log(`--- trace ${label} ---`);
+  for (const [index, sample] of samples.entries()) {
+    console.log(
+      `t=${index + 1}s lines=${sample.lines} audio=${sample.audio} cuts=${sample.cuts} skips=${sample.skips} ` +
+        `speaking=${sample.speaking ? "Y" : "-"} audioTime=${sample.audioTime} rate=${sample.rate}` +
+        (sample.error ? ` error=${sample.error}` : ""),
+    );
+  }
+
+  const speakingSamples = samples.filter((sample) => sample.speaking === true).length;
+  const cuts = Math.max(...samples.map((sample) => sample.cuts ?? 0));
+  const maxLines = Math.max(...samples.map((sample) => sample.lines ?? 0));
+  const maxAudio = Math.max(...samples.map((sample) => sample.audio ?? 0));
+  console.log(
+    `SUMMARY ${label} lines=${maxLines} audio=${maxAudio} cuts=${cuts} speaking_samples=${speakingSamples}/${samples.length}`,
+  );
+  console.log(cuts === 0 && speakingSamples >= 3 && maxAudio >= 2 ? `PASS ${label}` : `FAIL ${label}`);
 } catch (error) {
   console.log(`FAIL ${error.message}`);
   const status = await readDataset().catch(() => null);

@@ -14,16 +14,23 @@ export interface DubEngineOptions {
   holdMs?: number;
   /** Tăng tốc audio cho vừa khung thời gian của cue. */
   fitToCue?: boolean;
+  /** Tốc độ tăng tốc tối đa cho fitToCue (mặc định 1.6). */
+  maxFitRate?: number;
+  /**
+   * Chế độ live caption: đọc lần lượt từng câu có audio, không cắt giữa từ.
+   * Lệch quá xa thì bỏ bớt câu để đuổi kịp video.
+   */
+  queueMode?: boolean;
   onDecision?: (decision: PlaybackDecision) => void;
 }
 
-/** Tốc độ phát để audio vừa khung cue; tối đa 1.6x. */
-export function computeFitRate(audioDuration: number, windowSeconds: number): number {
+/** Tốc độ phát để audio vừa khung cue; tối đa `maxRate`. */
+export function computeFitRate(audioDuration: number, windowSeconds: number, maxRate = 1.6): number {
   if (!Number.isFinite(audioDuration) || audioDuration <= 0) return 1;
   const window = Math.max(0.8, windowSeconds);
   const rate = audioDuration / window;
   if (!Number.isFinite(rate)) return 1;
-  return Math.min(1.6, Math.max(1, rate));
+  return Math.min(Math.max(1, maxRate), Math.max(1, rate));
 }
 
 /**
@@ -40,10 +47,13 @@ export class DubEngine {
   private readonly tickMs: number;
   private readonly holdMs: number;
   private readonly fitToCue: boolean;
+  private readonly maxFitRate: number;
+  private readonly queueMode: boolean;
   private readonly onDecision?: (decision: PlaybackDecision) => void;
   private readonly scheduler: PlaybackScheduler;
   private readonly objectUrls = new Map<number, string>();
   private pending: { index: number; offset: number; due: number } | null = null;
+  private pendingStop: number | null = null;
   private previousVolume: number;
   private timer: number | null = null;
   private running = false;
@@ -72,6 +82,8 @@ export class DubEngine {
     this.tickMs = Math.max(50, options.tickMs ?? 100);
     this.holdMs = Math.max(0, options.holdMs ?? 1500);
     this.fitToCue = options.fitToCue ?? true;
+    this.maxFitRate = Math.max(1, options.maxFitRate ?? 1.6);
+    this.queueMode = options.queueMode ?? false;
     this.onDecision = options.onDecision;
     this.scheduler = new PlaybackScheduler(this.cues);
     this.previousVolume = this.video.volume;
@@ -83,6 +95,36 @@ export class DubEngine {
       resyncs: this.scheduler.resyncCount,
       running: this.running,
       cuts: this.cuts,
+    };
+  }
+
+  get queueStats(): { index: number; skips: number } {
+    return { index: this.queueIndex, skips: this.skips };
+  }
+
+  /** Trạng thái để ghi vào dataset, phục vụ kiểm thử tự động. */
+  get debug(): {
+    cuts: number;
+    skips: number;
+    speaking: boolean;
+    audioTime: number;
+    audioPaused: boolean;
+    rate: number;
+    index: number;
+    pending: boolean;
+    pendingStop: boolean;
+  } {
+    const audioTime = this.audio.currentTime;
+    return {
+      cuts: this.cuts,
+      skips: this.skips,
+      speaking: this.isSpeaking(),
+      audioTime: Number.isFinite(audioTime) ? Number(audioTime.toFixed(2)) : -1,
+      audioPaused: this.audio.paused,
+      rate: Number.isFinite(this.audio.playbackRate) ? Number(this.audio.playbackRate.toFixed(2)) : -1,
+      index: this.scheduler.index,
+      pending: this.pending !== null,
+      pendingStop: this.pendingStop !== null,
     };
   }
 
@@ -156,22 +198,83 @@ export class DubEngine {
     }
     if (this.audio.src !== source) this.audio.src = source;
     this.audio.currentTime = offset;
-    const baseRate = this.fitToCue ? computeFitRate(this.audio.duration, this.cueWindow(index, offset)) : 1;
+    const baseRate = this.fitToCue
+      ? computeFitRate(this.audio.duration, this.cueWindow(index, offset), this.maxFitRate)
+      : 1;
     this.audio.playbackRate = baseRate * this.video.playbackRate;
     if (!this.video.paused) void this.audio.play().catch(() => {});
+  }
+
+  private applyFitRate(index: number, offset: number): void {
+    if (!this.fitToCue) return;
+    const duration = this.audio.duration;
+    if (!Number.isFinite(duration) || duration <= 0) return;
+    const target =
+      computeFitRate(duration, this.cueWindow(index, offset), this.maxFitRate) * this.video.playbackRate;
+    if (!Number.isFinite(target) || target <= 0) return;
+    if (Math.abs(this.audio.playbackRate - target) > 0.02) this.audio.playbackRate = target;
+  }
+
+  private queueIndex = -1;
+  private skips = 0;
+
+  private tickQueue(): void {
+    if (this.video.paused) {
+      if (!this.audio.paused) this.audio.pause();
+      return;
+    }
+
+    // Đuổi kịp: nếu tụt lại quá 2 câu thì nhảy tới vị trí hiện tại của video.
+    const timeline = this.scheduler.update(this.video.currentTime, this.audio.currentTime);
+    if (timeline.action !== "stop" && this.queueIndex >= 0 && timeline.index > this.queueIndex + 2) {
+      this.queueIndex = Math.max(-1, timeline.index - 1);
+      this.skips += 1;
+    }
+
+    if (this.audio.paused || this.audio.ended) {
+      let next = this.queueIndex + 1;
+      while (next < this.cues.length && !this.audioByIndex[next]) next += 1;
+      if (next < this.cues.length) {
+        this.queueIndex = next;
+        this.startCue(next, 0);
+      }
+    }
+
+    if (this.queueIndex >= 0) {
+      this.onDecision?.({ action: "continue", index: this.queueIndex, offset: 0 });
+    }
   }
 
   private tick(): void {
     if (!this.running) return;
 
+    if (this.queueMode) {
+      this.tickQueue();
+      return;
+    }
+
     const decision = this.scheduler.update(this.video.currentTime, this.audio.currentTime);
     this.onDecision?.(decision);
 
     if (decision.action === "stop") {
+      // Video đang chạy: cho câu đang nói nói nốt, chỉ cắt khi quá trễ.
+      if (!this.video.paused && this.isSpeaking()) {
+        if (this.pendingStop === null) {
+          this.pendingStop = performance.now() + this.holdMs;
+        } else if (performance.now() > this.pendingStop) {
+          this.cuts += 1;
+          this.pendingStop = null;
+          this.audio.pause();
+        }
+        return;
+      }
+      this.pendingStop = null;
       this.pending = null;
       if (!this.audio.paused) this.audio.pause();
       return;
     }
+
+    this.pendingStop = null;
 
     if (decision.action === "play") {
       if (this.isSpeaking()) {
@@ -202,21 +305,19 @@ export class DubEngine {
       return;
     }
 
+    this.applyFitRate(decision.index, decision.offset);
+
     if (!this.video.paused && this.audio.paused) {
       const source = this.sourceFor(decision.index);
       if (source) {
         if (this.audio.src !== source) this.audio.src = source;
         this.audio.currentTime = decision.offset;
         const baseRate = this.fitToCue
-          ? computeFitRate(this.audio.duration, this.cueWindow(decision.index, decision.offset))
+          ? computeFitRate(this.audio.duration, this.cueWindow(decision.index, decision.offset), this.maxFitRate)
           : 1;
         this.audio.playbackRate = baseRate * this.video.playbackRate;
         void this.audio.play().catch(() => {});
       }
-    }
-
-    if (this.audio.playbackRate !== this.video.playbackRate) {
-      this.audio.playbackRate = this.video.playbackRate;
     }
   }
 }

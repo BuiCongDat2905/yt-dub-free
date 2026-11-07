@@ -95,4 +95,6 @@ test("computeFitRate tăng tốc vừa khung cue, có trần 1.6x", () => {
 
   assert.equal(computeFitRate(Number.NaN, 2), 1, "duration chưa có");
   assert.equal(computeFitRate(3, 0), 1.6, "khung 0 vẫn dùng sàn 0.8s");
+  assert.equal(computeFitRate(4, 1, 2.5), 2.5, "trần riêng cho chế độ live");
+  assert.equal(computeFitRate(1, 2, 2.5), 1, "không làm chậm audio ngắn");
 });
