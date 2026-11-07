@@ -35,20 +35,6 @@ test("splitForTts giữ nguyên câu ngắn, cắt câu dài mà không mất ch
   assert.deepEqual(splitForTts("   "), []);
 });
 
-test("GoogleTtsProvider đọc thuật ngữ bằng giọng Anh", async () => {
-  const languages = [];
-  const fetchImpl = async (url) => {
-    languages.push(new URL(url).searchParams.get("tl"));
-    return okAudio(1000, 1);
-  };
-
-  const provider = new GoogleTtsProvider({ lang: "vi", fetchImpl });
-  const audio = await provider.synthesize("Dùng React và API.");
-
-  assert.deepEqual(languages, ["vi", "en", "vi", "en", "vi"]);
-  assert.equal(audio.length, languages.length * 1000);
-});
-
 test("GoogleTtsProvider ghép nhiều chunk MP3 theo thứ tự", async () => {
   const requested = [];
   let call = 0;

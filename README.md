@@ -8,9 +8,8 @@ Repo: https://github.com/BuiCongDat2905/yt-dub-free
 
 ## Tính năng
 
-- Lấy caption/transcript của video YouTube, cắt thành câu dễ đọc.
+- Lấy caption/transcript của video YouTube, cắt thành câu dễ đọc, bỏ cụm bị lặp ở chỗ ngắt.
 - Dịch sang tiếng Việt bằng Google Translate công khai, có cache.
-- Thuật ngữ CNTT (React, API, cache, model...) giữ nguyên tiếng Anh và được đọc bằng giọng Anh; phần còn lại đọc giọng Việt. Miễn phí.
 - Tổng hợp giọng đọc tiếng Việt bằng Google TTS, có cache audio.
 - Phát audio lồng tiếng bám theo đồng hồ video: seek, pause, đổi tốc độ đều khớp; không phát lại câu đã đọc xong.
 - Hạ âm lượng tiếng gốc. Phụ đề tiếng Việt trên player là tuỳ chọn, **mặc định tắt**.
@@ -21,37 +20,51 @@ Chỉ chạy trên `www.youtube.com`. Không hỗ trợ `m.youtube.com`, video n
 
 ## Yêu cầu
 
-- Trình duyệt Chrome hoặc Edge (bản mới, hỗ trợ MV3).
+- Trình duyệt Chrome hoặc Edge bản mới (hỗ trợ MV3).
 - Video có caption hoặc transcript. Video không có thì extension báo lỗi rõ, không treo.
-- Để build: Node.js 22.x (>= 22.23.4), 24.x (>= 24.22.1) hoặc >= 26.12.1; npm.
+- Nếu tự build: Node.js 22.x (>= 22.23.4), 24.x (>= 24.22.1) hoặc >= 26.12.1; npm.
 
-## Build
+## Tải và cài đặt (không cần build)
+
+1. Tải file zip bản mới nhất:
+
+   https://github.com/BuiCongDat2905/yt-dub-free/raw/main/release/yt-dub-free-0.1.0-chrome.zip
+
+2. Giải nén ra **một thư mục cố định**, ví dụ `C:\Users\<tên-bạn>\EdgeExtensions\yt-dub-free`.
+   Thư mục này phải còn sau khi cài, đừng xoá. Bên trong phải thấy `manifest.json`.
+
+3. Mở `edge://extensions` (Edge) hoặc `chrome://extensions` (Chrome).
+
+4. Bật **Developer mode**.
+
+5. Bấm **Load unpacked** → chọn đúng thư mục đã giải nén ở bước 2.
+
+6. Ghim extension lên thanh công cụ. Mở một video YouTube, bấm badge **Dub: OFF** ở góc phải dưới player, hoặc nhấn `Alt+D`.
+
+Lần đầu mất vài giây để lấy caption, dịch và tổng hợp giọng. Badge chuyển **Dub: ON** khi audio bắt đầu phát.
+
+## Cập nhật phiên bản
+
+1. Tải lại file zip ở trên.
+2. Giải nén đè vào đúng thư mục đã cài (ghi đè file cũ).
+3. Mở `edge://extensions`, bấm nút **↻** trên card **YT Dub Free**.
+4. Tải lại trang video đang mở.
+
+## Build từ mã nguồn
 
 ```bash
 npm install
 npm run build
 ```
 
-Kết quả ở `.output/chrome-mv3`. Muốn file đóng gói: `npm run zip` → `.output/yt-dub-free-0.1.0-chrome.zip`.
+Kết quả ở `.output/chrome-mv3`. Đóng gói zip: `npm run zip` → `.output/yt-dub-free-0.1.0-chrome.zip`.
 
-## Cài đặt (load unpacked)
-
-1. Mở `chrome://extensions` (hoặc `edge://extensions`).
-2. Bật **Developer mode**.
-3. Bấm **Load unpacked**.
-4. Chọn thư mục `D:\Ai20K\yt-dub-free\.output\chrome-mv3`.
-5. Mở một video YouTube, bấm badge **Dub: OFF** ở góc phải dưới player (hoặc `Alt+D`).
-
-Với Edge, bản build sẵn đã được copy vào `C:\Users\datco\EdgeExtensions\yt-dub-free` — chọn đúng thư mục đó khi bấm **Load unpacked** để extension không phụ thuộc thư mục `.output`.
-
-Lần đầu sẽ mất vài giây để lấy caption, dịch và tổng hợp giọng. Badge chuyển **Dub: ON** khi audio bắt đầu phát.
-
-![Popup cài đặt](docs/popup.png)
+Bản build sẵn dùng cho Edge trên máy này nằm ở `C:\Users\datco\EdgeExtensions\yt-dub-free`.
 
 ## Dùng
 
 - `Alt+D`: bật/tắt lồng tiếng.
-- Badge dưới player: trạng thái `OFF` / `Đang chuẩn bị…` / `ON`.
+- Badge dưới player: `OFF` / `Đang chuẩn bị…` / `ON`.
 - Popup: kéo **Tiếng gốc** (mặc định `0.10`) và **Tiếng lồng** (`1.00`), tick **Hiện phụ đề tiếng Việt** (mặc định tắt), tick **Tự bật khi mở video**.
 
 ## Cách hoạt động
@@ -60,17 +73,25 @@ Lần đầu sẽ mất vài giây để lấy caption, dịch và tổng hợp 
 caption/transcript → cắt câu → dịch VI → TTS → phát theo cue
 ```
 
+- Caption lấy theo cách của extension thương mại: hook `fetch`/XHR trong MAIN world ở `document_start`, bắt URL `/api/timedtext` do chính trang YouTube gọi (URL có token hợp lệ), rồi tải lại URL đó và parse `json3`/VTT.
 - Đồng hồ duy nhất là `video.currentTime`; audio chỉ là đầu ra, nên seek/đổi tốc độ không trôi.
-- Thuật ngữ CNTT được thay bằng token `[[n]]` trước khi dịch, hoàn lại sau khi dịch; khi đọc, câu được tách thành đoạn Việt/Anh để dùng đúng giọng.
+- Nếu không lấy được transcript, extension chuyển sang **đọc phụ đề đang hiện trên player**: tự bật CC, hứng từng câu khi video phát rồi dịch + TTS.
 - Câu đã phát xong được đánh dấu; engine không phát lại đoạn đó khi video còn trong khung cue (chống lặp ở cuối cụm).
-- Nếu không lấy được transcript (timedtext bị chặn, panel transcript không mở được), extension chuyển sang **đọc phụ đề đang hiện trên player**: tự bật CC, hứng từng câu khi video phát rồi dịch + TTS. Chế độ này trễ khoảng 1.2 giây so với phụ đề gốc.
-- Lệch quá 0.2 s thì tua lại audio; ngưỡng này nhỏ hơn 0.3 s theo yêu cầu.
 - Prefetch 4 câu phía trước, tuần tự, dừng khi tab ẩn.
 - Google TTS lỗi thì tự chuyển `speechSynthesis` của máy cho câu đó.
+
+## Cache và dung lượng
+
+- Bản dịch lưu dạng text (rất nhỏ). Audio TTS lưu dạng MP3 trong IndexedDB.
+- MP3 Google TTS khoảng 5 KB mỗi giây giọng nói: 10 phút video khoảng 3 MB, 1 giờ khoảng 18 MB.
+- Extension tự dọn cache audio khi vượt **40 MB** (khoảng 2 giờ video), xoá bớt bản cũ nhất trước.
+- Video đã dịch xong thì lần sau phát lại không gọi mạng, không tăng thêm dung lượng.
+- Muốn xoá tay: mở video YouTube → F12 → **Application** → **IndexedDB** → `ytdubfree` → chuột phải, **Delete database**. Hoặc gỡ extension.
 
 ## Quyền và dữ liệu
 
 - `storage`: lưu cài đặt (`chrome.storage.sync`) và cache (IndexedDB).
+- `scripting`: cài hook bắt request caption trong MAIN world.
 - Host: `www.youtube.com` (đọc trang/caption), `translate.googleapis.com` (dịch), `translate.google.com` (TTS).
 - Audio TTS tải qua **background service worker** rồi chuyển sang content script. Lý do: `translate.google.com/translate_tts` không trả header `Access-Control-Allow-Origin`, nên fetch trực tiếp từ content script bị CORS chặn.
 - Không gửi dữ liệu tới server nào của dự án. Không thu thập telemetry.
@@ -80,7 +101,7 @@ caption/transcript → cắt câu → dịch VI → TTS → phát theo cue
 ```bash
 npm run build     # build extension
 npm run compile   # tsc --noEmit
-npm test          # node --test tests (58 test)
+npm test          # node --test tests
 npm run zip       # đóng gói
 npm run icons     # tạo lại icon PNG
 npm run smoke     # smoke test extension bằng Edge headless

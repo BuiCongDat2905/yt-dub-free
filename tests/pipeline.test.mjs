@@ -27,21 +27,6 @@ const fakeProvider = (options = {}) => {
   };
 };
 
-test("prepareDubbing giữ thuật ngữ CNTT bằng tiếng Anh", async () => {
-  const { provider } = fakeProvider();
-  const prepared = await prepareDubbing({
-    cues: [cue(0, 2, "Dùng React và API để build giao diện.")],
-    provider,
-    fetchImpl: fakeTranslateFetch(),
-  });
-
-  const translated = prepared.translated[0] ?? "";
-  assert.ok(translated.includes("React"), "giữ React");
-  assert.ok(translated.includes("API"), "giữ API");
-  assert.ok(translated.includes("build"), "giữ build");
-  assert.ok(!translated.includes("[["), "không còn token đánh dấu");
-});
-
 test("prepareDubbing cắt câu, dịch và tổng hợp theo đúng thứ tự", async () => {
   const { state, provider } = fakeProvider();
   const prepared = await prepareDubbing({

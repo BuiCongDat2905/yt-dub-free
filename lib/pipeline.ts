@@ -1,4 +1,3 @@
-import { protectTerms, restoreTerms } from "./glossary/terms.ts";
 import type { Cue } from "./subtitle/types.ts";
 import { segmentCues } from "./subtitle/segment.ts";
 import { translateBatch, type TranslationCache } from "./translate/google.ts";
@@ -31,10 +30,8 @@ export async function prepareDubbing(options: PrepareDubbingOptions): Promise<Pr
   const cues = segmentCues(options.cues);
   if (cues.length === 0) throw new Error("không có câu nào sau khi cắt");
 
-  // Giữ thuật ngữ CNTT bằng tiếng Anh: thay bằng token trước khi dịch, hoàn lại sau.
-  const protections = cues.map((cue) => protectTerms(cue.text));
-  const translatedMasked = await translateBatch(
-    protections.map((item) => item.masked),
+  const translated = await translateBatch(
+    cues.map((cue) => cue.text),
     {
       targetLang,
       fetchImpl: options.fetchImpl,
@@ -42,7 +39,6 @@ export async function prepareDubbing(options: PrepareDubbingOptions): Promise<Pr
       signal: options.signal,
     },
   );
-  const translated = translatedMasked.map((text, index) => restoreTerms(text, protections[index]?.terms ?? []));
 
   const queue = new TtsQueue({
     provider: options.provider,
