@@ -1,4 +1,4 @@
-import { audioCache } from "@/lib/cache/audioCache";
+﻿import { audioCache } from "@/lib/cache/audioCache";
 import { translationCache } from "@/lib/cache/idb";
 import { ALLOWED_HOST, APP_NAME, BADGE_ID, PREFERRED_CAPTION_LANG, TARGET_LANG } from "@/lib/config";
 import { DubEngine } from "@/lib/player/engine";
@@ -37,7 +37,7 @@ const HOST_STYLE = "position:fixed;right:16px;bottom:88px;z-index:2147483000;";
 const CUE_TIMEOUT_MS = 25000;
 const PANEL_TIMEOUT_MS = 12000;
 const LIVE_LAG_SECONDS = 1.2;
-/** Báº­t thá»§ cÃ´ng Ä‘á»ƒ test nhÃ¡nh live caption; build phÃ¡t hÃ nh Ä‘á»ƒ false. */
+/** BÃ¡ÂºÂ­t thÃ¡Â»Â§ cÃƒÂ´ng Ã„â€˜Ã¡Â»Æ’ test nhÃƒÂ¡nh live caption; build phÃƒÂ¡t hÃƒÂ nh Ã„â€˜Ã¡Â»Æ’ false. */
 const FORCE_LIVE_MODE = false;
 const SHADOW_HTML = `
   <style>
@@ -68,7 +68,7 @@ interface CaptionStatus {
   segments?: number;
   source?: string;
   stats?: Record<string, number>;
-  live?: { lines: number };
+  live?: { lines: number; cuts?: number };
   diagnostics?: TranscriptDiagnostic[];
   settings?: Settings;
   error?: string;
@@ -110,7 +110,7 @@ function render(): void {
   button.dataset.busy = String(busy);
   const label = button.querySelector(".label");
   if (label) {
-    if (busy) label.textContent = "Äang chuáº©n bá»‹â€¦";
+    if (busy) label.textContent = "Ã„Âang chuÃ¡ÂºÂ©n bÃ¡Â»â€¹Ã¢â‚¬Â¦";
     else label.textContent = enabled ? "Dub: ON" : "Dub: OFF";
   }
 }
@@ -204,9 +204,9 @@ async function loadCues(
 
   const fromPageTrack = await tryTrack(activeTrack, "timedtext");
   if (fromPageTrack) return { cues: fromPageTrack, source: "timedtext", diagnostics };
-  if (!activeTrack) diagnostics.push({ source: "timedtext", ok: false, error: "khÃ´ng cÃ³ caption track" });
+  if (!activeTrack) diagnostics.push({ source: "timedtext", ok: false, error: "khÃƒÂ´ng cÃƒÂ³ caption track" });
 
-  // Panel transcript lÃ  Ä‘Æ°á»ng nhanh vÃ  á»•n Ä‘á»‹nh nháº¥t khi timedtext bá»‹ cháº·n.
+  // Panel transcript lÃƒÂ  Ã„â€˜Ã†Â°Ã¡Â»Âng nhanh vÃƒÂ  Ã¡Â»â€¢n Ã„â€˜Ã¡Â»â€¹nh nhÃ¡ÂºÂ¥t khi timedtext bÃ¡Â»â€¹ chÃ¡ÂºÂ·n.
   try {
     const cues = await readTranscriptFromPage(document, PANEL_TIMEOUT_MS);
     diagnostics.push({ source: "transcript-panel", ok: true, cues: cues.length });
@@ -250,7 +250,7 @@ async function loadCues(
   return { cues: [], source: "", diagnostics };
 }
 
-/** Dá»± phÃ²ng cuá»‘i: Ä‘á»c phá»¥ Ä‘á» Ä‘ang hiá»‡n trÃªn player, dá»‹ch + TTS ngay khi cÃ¢u xuáº¥t hiá»‡n. */
+/** DÃ¡Â»Â± phÃƒÂ²ng cuÃ¡Â»â€˜i: Ã„â€˜Ã¡Â»Âc phÃ¡Â»Â¥ Ã„â€˜Ã¡Â»Â Ã„â€˜ang hiÃ¡Â»â€¡n trÃƒÂªn player, dÃ¡Â»â€¹ch + TTS ngay khi cÃƒÂ¢u xuÃ¡ÂºÂ¥t hiÃ¡Â»â€¡n. */
 async function startLiveMode(
   video: HTMLVideoElement,
   videoId: string,
@@ -265,7 +265,7 @@ async function startLiveMode(
     publishStatus({
       videoId,
       source: "live-captions",
-      live: { lines: liveCues.length },
+      live: { lines: liveCues.length, cuts: engine?.stats.cuts ?? 0 },
       diagnostics,
       stats: {
         cues: liveCues.length,
@@ -320,7 +320,7 @@ async function startLiveMode(
         liveAudio[index] = audio;
         await audioCache.set(`${TARGET_LANG}|${text}`, audio);
       } catch {
-        // engine sáº½ phÃ¡t im láº·ng cho cÃ¢u nÃ y
+        // engine sÃ¡ÂºÂ½ phÃƒÂ¡t im lÃ¡ÂºÂ·ng cho cÃƒÂ¢u nÃƒÂ y
       } finally {
         publish();
       }
@@ -333,7 +333,7 @@ async function startLiveMode(
 async function startDubbing(videoId: string): Promise<void> {
   const video = findVideoElement();
   if (!video) {
-    publishStatus({ videoId, error: "khÃ´ng tÃ¬m tháº¥y tháº» video" });
+    publishStatus({ videoId, error: "khÃƒÂ´ng tÃƒÂ¬m thÃ¡ÂºÂ¥y thÃ¡ÂºÂ» video" });
     return;
   }
 
@@ -440,7 +440,7 @@ function sync(): void {
     delete document.documentElement.dataset.ytdubfree;
     return;
   }
-  // SPA Ä‘á»•i cháº¥t lÆ°á»£ng/param váº«n cÃ¹ng video: giá»¯ nguyÃªn phiÃªn lá»“ng tiáº¿ng Ä‘ang cháº¡y.
+  // SPA Ã„â€˜Ã¡Â»â€¢i chÃ¡ÂºÂ¥t lÃ†Â°Ã¡Â»Â£ng/param vÃ¡ÂºÂ«n cÃƒÂ¹ng video: giÃ¡Â»Â¯ nguyÃƒÂªn phiÃƒÂªn lÃ¡Â»â€œng tiÃ¡ÂºÂ¿ng Ã„â€˜ang chÃ¡ÂºÂ¡y.
   if (videoId === currentVideo && enabled) {
     render();
     return;
@@ -502,4 +502,6 @@ export default defineContentScript({
     void init();
   },
 });
+
+
 
