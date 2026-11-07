@@ -12,6 +12,7 @@ import {
   type Settings,
 } from "@/lib/settings";
 import { CaptionUnavailableError, type CaptionTrack, type Cue } from "@/lib/subtitle/types";
+import { createBackgroundFetch } from "@/lib/tts/backgroundFetch";
 import { GoogleTtsProvider } from "@/lib/tts/google";
 import { SystemTtsProvider } from "@/lib/tts/system";
 import { SubtitleOverlay } from "@/lib/ui/overlay";
@@ -193,7 +194,8 @@ async function startDubbing(videoId: string): Promise<void> {
     const { cues, source } = await loadCues();
     if (!enabled) return;
 
-    const provider = new GoogleTtsProvider({ lang: TARGET_LANG });
+    const ttsFetch = createBackgroundFetch();
+    const provider = new GoogleTtsProvider({ lang: TARGET_LANG, fetchImpl: ttsFetch });
     const prepared = await prepareDubbing({
       cues,
       provider,
