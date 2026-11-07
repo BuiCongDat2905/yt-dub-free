@@ -18,6 +18,11 @@ import { GoogleTtsProvider } from "@/lib/tts/google";
 import { SystemTtsProvider } from "@/lib/tts/system";
 import { SubtitleOverlay } from "@/lib/ui/overlay";
 import { fetchCuesForTrack, pickTrack } from "@/lib/youtube/captions";
+import {
+  armCapturedCaptions,
+  fetchCapturedCaptions,
+  triggerCaptionRequest,
+} from "@/lib/youtube/capturedCaptions";
 import { getCaptionTracks } from "@/lib/youtube/innertube";
 import {
   cuesFromLines,
@@ -87,6 +92,7 @@ let liveHandle: LiveCaptionHandle | null = null;
 let liveTicker: number | null = null;
 let currentVideo: string | null = null;
 const overlay = new SubtitleOverlay();
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
 
 function publishStatus(status: CaptionStatus): void {
   document.documentElement.dataset.ytdubfree = JSON.stringify({ ...status, settings });
@@ -210,6 +216,24 @@ async function loadCues(
   const fromPageTrack = await tryTrack(activeTrack, "timedtext");
   if (fromPageTrack) return { cues: fromPageTrack, source: "timedtext", diagnostics };
   if (!activeTrack) diagnostics.push({ source: "timedtext", ok: false, error: "không có caption track" });
+
+  // Cách của extension gốc: lấy URL timedtext do chính trang gọi (có token hợp lệ).
+  try {
+    const captured = await fetchCapturedCaptions(videoId, 5000);
+    if (captured) {
+      diagnostics.push({
+        source: "page-timedtext",
+        ok: true,
+        cues: captured.cues.length,
+        bytes: captured.bytes,
+        note: captured.fromFormat,
+      });
+      return { cues: captured.cues, source: "page-timedtext", diagnostics };
+    }
+    diagnostics.push({ source: "page-timedtext", ok: false, error: "chưa bắt được request timedtext của trang" });
+  } catch (error) {
+    diagnostics.push({ source: "page-timedtext", ok: false, error: message(error) });
+  }
 
   try {
     const cues = await readTranscriptFromPage(document, PANEL_TIMEOUT_MS);
@@ -355,6 +379,10 @@ async function startDubbing(videoId: string): Promise<void> {
   let diagnostics: TranscriptDiagnostic[] = [];
 
   try {
+    // Bật CC + ép trang gọi timedtext; hook MAIN world bắt URL đó.
+    armCapturedCaptions();
+    await triggerCaptionRequest(document);
+    await sleep(400);
     const loaded = await loadCues(videoId);
     diagnostics = loaded.diagnostics;
     if (FORCE_LIVE_MODE || loaded.cues.length === 0) {
@@ -399,6 +427,7 @@ async function startDubbing(videoId: string): Promise<void> {
       cues: prepared.cues,
       audioByIndex: prepared.audioByIndex,
       originalVolume: settings.originalVolume,
+      holdMs: 4000,
       onDecision: (decision) => {
         if (decision.action === "stop" || decision.index < 0) {
           overlay.clear();

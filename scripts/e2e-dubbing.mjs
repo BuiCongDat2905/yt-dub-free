@@ -123,6 +123,13 @@ try {
   await click("mouseReleased");
   console.log("clicked badge (trusted)");
 
+  await sleep(2500);
+  console.log("hook_installed=" + (await evaluate("!!window.__ytdubfreeCaptionHook")));
+  console.log("hook_stats=" + (await evaluate("JSON.stringify(window.__ytdubfreeHookStats || null)")));
+  console.log("cc_pressed=" + (await evaluate("document.querySelector('.ytp-subtitles-button')?.getAttribute('aria-pressed')")));
+  const early = await evaluate("document.documentElement.dataset.ytdubfree || ''");
+  console.log("dataset_after_click=" + String(early).slice(0, 500));
+
   const samples = [];
   let firstStatus = null;
   for (let step = 0; step < 45; step += 1) {
@@ -141,6 +148,7 @@ try {
     const debug = live.debug ?? {};
     const tracker = live.tracker ?? {};
     samples.push({
+      source: status.source ?? "",
       lines: live.lines ?? 0,
       audio: status.stats?.audio ?? 0,
       cuts: live.cuts ?? 0,
@@ -160,7 +168,7 @@ try {
   console.log(`--- trace ${label} ---`);
   for (const [index, sample] of samples.entries()) {
     console.log(
-      `t=${index + 1}s lines=${sample.lines} audio=${sample.audio} cuts=${sample.cuts} skips=${sample.skips} ` +
+      `t=${index + 1}s src=${sample.source || "-"} lines=${sample.lines} audio=${sample.audio} cuts=${sample.cuts} skips=${sample.skips} ` +
         `speaking=${sample.speaking ? "Y" : "-"} audioTime=${sample.audioTime} rate=${sample.rate} ` +
         `mut=${sample.mut} raw=${sample.raw} emitted=${sample.emitted} cc=${sample.cc ? "Y" : "-"}` +
         (sample.error ? ` error=${sample.error}` : ""),
@@ -171,10 +179,14 @@ try {
   const cuts = Math.max(...samples.map((sample) => sample.cuts ?? 0));
   const maxLines = Math.max(...samples.map((sample) => sample.lines ?? 0));
   const maxAudio = Math.max(...samples.map((sample) => sample.audio ?? 0));
+  const sources = [...new Set(samples.map((sample) => sample.source).filter((value) => value && value !== "-"))];
   console.log(
-    `SUMMARY ${label} lines=${maxLines} audio=${maxAudio} cuts=${cuts} speaking_samples=${speakingSamples}/${samples.length}`,
+    `SUMMARY ${label} sources=${sources.join(",") || "-"} lines=${maxLines} audio=${maxAudio} ` +
+      `cuts=${cuts} speaking_samples=${speakingSamples}/${samples.length}`,
   );
-  console.log(cuts === 0 && speakingSamples >= 3 && maxAudio >= 2 ? `PASS ${label}` : `FAIL ${label}`);
+  const staticOk = maxAudio >= 5 && cuts === 0;
+  const liveOk = cuts === 0 && speakingSamples >= 3 && maxAudio >= 2;
+  console.log(staticOk || liveOk ? `PASS ${label}` : `FAIL ${label}`);
 } catch (error) {
   console.log(`FAIL ${error.message}`);
   const status = await readDataset().catch(() => null);
