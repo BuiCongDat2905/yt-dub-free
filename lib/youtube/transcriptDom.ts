@@ -3,7 +3,9 @@ import { CaptionUnavailableError } from "../subtitle/types.ts";
 import { normalizeCues } from "../subtitle/parse.ts";
 
 const SEGMENT_SELECTOR = "ytd-transcript-segment-renderer";
-const TRANSCRIPT_BUTTON_TEXT = /transcript|bản ghi|bảng điểm|bảng ghi|lời thoại|字幕/i;
+const RENDERER_SELECTOR = "ytd-transcript-renderer";
+const SECTION_SELECTOR = "ytd-video-description-transcript-section-renderer";
+const TRANSCRIPT_BUTTON_TEXT = /transcript|bản ghi|bảng điểm|bảng ghi|lời thoại|hiện văn bản|字幕/i;
 const EXPAND_SELECTOR = [
   "ytd-text-inline-expander #expand",
   "ytd-watch-metadata #expand",
@@ -11,6 +13,8 @@ const EXPAND_SELECTOR = [
   "#description-inline-expander #expand",
   "#expand",
 ].join(", ");
+const SECTION_CLICKABLE_SELECTOR =
+  "button, a, [role='button'], yt-button-shape, ytd-button-renderer, yt-touch-feedback-shape, tp-yt-paper-button";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -23,6 +27,7 @@ export interface PanelDiagnostics {
   transcriptRenderer: number;
   segments: number;
   buttonLabels: string[];
+  sectionHtml: string[];
 }
 
 function parseTimestamp(text: string): number {
@@ -48,15 +53,20 @@ export function collectPanelDiagnostics(doc: Document = document): PanelDiagnost
     if (labels.length >= 5) break;
   }
 
+  const sectionHtml = Array.from(doc.querySelectorAll(SECTION_SELECTOR))
+    .slice(0, 2)
+    .map((element) => (element as HTMLElement).outerHTML.replace(/\s+/g, " ").slice(0, 500));
+
   return {
     lang: doc.documentElement.lang || "(none)",
     hasDescription: doc.querySelector("#description") !== null,
     hasExpander: doc.querySelector("ytd-text-inline-expander") !== null,
     expandCandidates: doc.querySelectorAll(EXPAND_SELECTOR).length,
-    transcriptSection: doc.querySelectorAll("ytd-video-description-transcript-section-renderer").length,
-    transcriptRenderer: doc.querySelectorAll("ytd-transcript-renderer").length,
+    transcriptSection: doc.querySelectorAll(SECTION_SELECTOR).length,
+    transcriptRenderer: doc.querySelectorAll(RENDERER_SELECTOR).length,
     segments: doc.querySelectorAll(SEGMENT_SELECTOR).length,
     buttonLabels: labels,
+    sectionHtml,
   };
 }
 
@@ -66,7 +76,7 @@ function pressElement(element: Element): void {
   try {
     target.scrollIntoView({ block: "center" });
   } catch {
-    // bỏ qua nếu môi trường không hỗ trợ
+    // bỏ qua
   }
   for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"] as const) {
     const Ctor = type.startsWith("pointer") ? (globalThis.PointerEvent ?? MouseEvent) : MouseEvent;
@@ -75,19 +85,31 @@ function pressElement(element: Element): void {
   target.click();
 }
 
-function expandDescription(doc: Document): void {
-  const candidate = doc.querySelector<HTMLElement>(EXPAND_SELECTOR);
-  if (candidate) pressElement(candidate);
+function expandDescription(doc: Document): number {
+  const candidates = Array.from(doc.querySelectorAll<HTMLElement>(EXPAND_SELECTOR));
+  for (const candidate of candidates) pressElement(candidate);
+  return candidates.length;
+}
+
+function clickTranscriptSections(doc: Document): number {
+  let clicked = 0;
+  for (const section of Array.from(doc.querySelectorAll(SECTION_SELECTOR))) {
+    const inner = Array.from(section.querySelectorAll<HTMLElement>(SECTION_CLICKABLE_SELECTOR));
+    const target = inner[0] ?? (section as HTMLElement);
+    pressElement(target);
+    clicked += 1;
+    if (clicked >= 2) break;
+  }
+  return clicked;
 }
 
 function findTranscriptButton(doc: Document): HTMLElement | null {
   const selectors = [
-    "ytd-video-description-transcript-section-renderer button",
-    "ytd-video-description-transcript-section-renderer yt-button-shape button",
-    "ytd-video-description-transcript-section-renderer a",
+    `${SECTION_SELECTOR} button`,
+    `${SECTION_SELECTOR} a`,
+    `${SECTION_SELECTOR} yt-button-shape button`,
     "yt-button-shape button",
     "button",
-    "a",
   ];
   for (const selector of selectors) {
     for (const element of Array.from(doc.querySelectorAll<HTMLElement>(selector))) {
@@ -98,33 +120,62 @@ function findTranscriptButton(doc: Document): HTMLElement | null {
   return null;
 }
 
+function scrollTranscriptPanel(doc: Document): void {
+  const container = doc.querySelector<HTMLElement>(
+    "#segments-container, ytd-transcript-renderer #content, ytd-transcript-renderer, ytd-engagement-panel-section-list-renderer",
+  );
+  if (!container) return;
+  container.scrollTop = container.scrollHeight;
+}
+
 async function waitForSegments(doc: Document, timeoutMs: number): Promise<Element[]> {
   const deadline = Date.now() + timeoutMs;
+  let scrolled = false;
   while (Date.now() < deadline) {
     const nodes = readSegments(doc);
     if (nodes.length > 0) return nodes;
+    const rendererOpen = doc.querySelectorAll(RENDERER_SELECTOR).length > 0;
+    if (rendererOpen && !scrolled) {
+      scrollTranscriptPanel(doc);
+      scrolled = true;
+    }
     await sleep(300);
   }
   return [];
 }
 
-/** Đọc transcript từ panel giao diện; lỗi kèm chẩn đoán DOM để sửa selector. */
+/** Mở panel transcript; lỗi kèm chẩn đoán DOM (gồm HTML section) để sửa selector. */
 export async function readTranscriptFromPage(doc: Document = document, timeoutMs = 25000): Promise<Cue[]> {
   let nodes = readSegments(doc);
+  const perAttempt = Math.max(4000, Math.floor(timeoutMs / 3));
 
   if (nodes.length === 0) {
-    for (let attempt = 0; attempt < 2 && nodes.length === 0; attempt += 1) {
-      expandDescription(doc);
-      await sleep(700);
-      const button = findTranscriptButton(doc);
-      if (button) pressElement(button);
-      nodes = await waitForSegments(doc, Math.max(4000, Math.floor(timeoutMs / 2)));
+    expandDescription(doc);
+    await sleep(700);
+    clickTranscriptSections(doc);
+    nodes = await waitForSegments(doc, perAttempt);
+  }
+
+  if (nodes.length === 0) {
+    const button = findTranscriptButton(doc);
+    if (button) {
+      pressElement(button);
+      nodes = await waitForSegments(doc, perAttempt);
     }
   }
 
   if (nodes.length === 0) {
-    const diagnostics = collectPanelDiagnostics(doc);
-    throw new CaptionUnavailableError(`không mở được panel transcript ${JSON.stringify(diagnostics)}`);
+    expandDescription(doc);
+    clickTranscriptSections(doc);
+    const button = findTranscriptButton(doc);
+    if (button) pressElement(button);
+    nodes = await waitForSegments(doc, perAttempt);
+  }
+
+  if (nodes.length === 0) {
+    throw new CaptionUnavailableError(
+      `không mở được panel transcript ${JSON.stringify(collectPanelDiagnostics(doc))}`,
+    );
   }
 
   const segments = nodes
