@@ -137,7 +137,17 @@ export class DubEngine {
 
     if (decision.action === "resync") {
       this.audio.currentTime = decision.offset;
-      return;
+    }
+
+    // Audio có thể tới muộn (live caption: dịch + TTS sau khi câu xuất hiện).
+    if (!this.video.paused && this.audio.paused) {
+      const source = this.sourceFor(decision.index);
+      if (source) {
+        if (this.audio.src !== source) this.audio.src = source;
+        this.audio.currentTime = decision.offset;
+        this.audio.playbackRate = this.video.playbackRate;
+        void this.audio.play().catch(() => {});
+      }
     }
 
     if (this.audio.playbackRate !== this.video.playbackRate) {

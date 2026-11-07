@@ -21,6 +21,12 @@ import { getCaptionTracks } from "@/lib/youtube/innertube";
 import { fetchCaptionTracksViaPlayer } from "@/lib/youtube/transcriptInnertube";
 import { readTranscriptFromPage } from "@/lib/youtube/transcriptDom";
 import {
+  cuesFromLines,
+  startLiveCaptions,
+  type LiveCaptionHandle,
+} from "@/lib/youtube/liveCaption";
+import { translateBatch } from "@/lib/translate/google";
+import {
   collectPageSource,
   fetchTranscriptViaInnertube,
   fetchWatchPageSource,
@@ -30,6 +36,9 @@ import {
 const HOST_STYLE = "position:fixed;right:16px;bottom:88px;z-index:2147483000;";
 const CUE_TIMEOUT_MS = 25000;
 const PANEL_TIMEOUT_MS = 12000;
+const LIVE_LAG_SECONDS = 1.2;
+/** Báº­t thá»§ cÃ´ng Ä‘á»ƒ test nhÃ¡nh live caption; build phÃ¡t hÃ nh Ä‘á»ƒ false. */
+const FORCE_LIVE_MODE = false;
 const SHADOW_HTML = `
   <style>
     :host { all: initial; }
@@ -59,6 +68,7 @@ interface CaptionStatus {
   segments?: number;
   source?: string;
   stats?: Record<string, number>;
+  live?: { lines: number };
   diagnostics?: TranscriptDiagnostic[];
   settings?: Settings;
   error?: string;
@@ -73,6 +83,7 @@ let activeTrack: CaptionTrack | null = null;
 let engine: DubEngine | null = null;
 let audioElement: HTMLAudioElement | null = null;
 let prefetch: PrefetchController | null = null;
+let liveHandle: LiveCaptionHandle | null = null;
 let currentVideo: string | null = null;
 const overlay = new SubtitleOverlay();
 
@@ -99,7 +110,7 @@ function render(): void {
   button.dataset.busy = String(busy);
   const label = button.querySelector(".label");
   if (label) {
-    if (busy) label.textContent = "Đang chuẩn bị…";
+    if (busy) label.textContent = "Äang chuáº©n bá»‹â€¦";
     else label.textContent = enabled ? "Dub: ON" : "Dub: OFF";
   }
 }
@@ -129,6 +140,8 @@ function applyVolumes(): void {
 }
 
 function stopDubbing(): void {
+  liveHandle?.stop();
+  liveHandle = null;
   prefetch?.cancel();
   prefetch = null;
   engine?.destroy();
@@ -191,9 +204,9 @@ async function loadCues(
 
   const fromPageTrack = await tryTrack(activeTrack, "timedtext");
   if (fromPageTrack) return { cues: fromPageTrack, source: "timedtext", diagnostics };
-  if (!activeTrack) diagnostics.push({ source: "timedtext", ok: false, error: "không có caption track" });
+  if (!activeTrack) diagnostics.push({ source: "timedtext", ok: false, error: "khÃ´ng cÃ³ caption track" });
 
-  // Panel transcript là đường nhanh và ổn định nhất khi timedtext bị chặn.
+  // Panel transcript lÃ  Ä‘Æ°á»ng nhanh vÃ  á»•n Ä‘á»‹nh nháº¥t khi timedtext bá»‹ cháº·n.
   try {
     const cues = await readTranscriptFromPage(document, PANEL_TIMEOUT_MS);
     diagnostics.push({ source: "transcript-panel", ok: true, cues: cues.length });
@@ -237,10 +250,90 @@ async function loadCues(
   return { cues: [], source: "", diagnostics };
 }
 
+/** Dá»± phÃ²ng cuá»‘i: Ä‘á»c phá»¥ Ä‘á» Ä‘ang hiá»‡n trÃªn player, dá»‹ch + TTS ngay khi cÃ¢u xuáº¥t hiá»‡n. */
+async function startLiveMode(
+  video: HTMLVideoElement,
+  videoId: string,
+  diagnostics: TranscriptDiagnostic[],
+): Promise<void> {
+  const provider = new GoogleTtsProvider({ lang: TARGET_LANG, fetchImpl: createBackgroundFetch() });
+  const liveCues: Cue[] = [];
+  const liveAudio: Array<Uint8Array | null> = [];
+  const translated: string[] = [];
+
+  const publish = (): void => {
+    publishStatus({
+      videoId,
+      source: "live-captions",
+      live: { lines: liveCues.length },
+      diagnostics,
+      stats: {
+        cues: liveCues.length,
+        translated: translated.filter((text) => text !== "").length,
+        audio: liveAudio.filter((audio) => audio !== null).length,
+        system: 0,
+        failed: 0,
+      },
+    });
+  };
+
+  audioElement = new Audio();
+  audioElement.preload = "auto";
+  audioElement.volume = settings.dubVolume;
+
+  engine = new DubEngine({
+    video,
+    audio: audioElement,
+    cues: liveCues,
+    audioByIndex: liveAudio,
+    originalVolume: settings.originalVolume,
+    onDecision: (decision) => {
+      if (decision.action === "stop" || decision.index < 0) {
+        overlay.clear();
+        return;
+      }
+      overlay.setText(translated[decision.index] || liveCues[decision.index]?.text || "");
+    },
+  });
+
+  overlay.attach(video);
+  engine.start();
+
+  liveHandle = startLiveCaptions(video, (line) => {
+    const cue = cuesFromLines([line], LIVE_LAG_SECONDS)[0];
+    if (!cue) return;
+    const index = liveCues.length;
+    liveCues.push(cue);
+    liveAudio.push(null);
+    translated.push("");
+    publish();
+
+    void (async () => {
+      try {
+        const [vietnamese] = await translateBatch([line.text], {
+          targetLang: TARGET_LANG,
+          fetchImpl: fetch,
+        });
+        const text = vietnamese || line.text;
+        translated[index] = text;
+        const audio = await provider.synthesize(text);
+        liveAudio[index] = audio;
+        await audioCache.set(`${TARGET_LANG}|${text}`, audio);
+      } catch {
+        // engine sáº½ phÃ¡t im láº·ng cho cÃ¢u nÃ y
+      } finally {
+        publish();
+      }
+    })();
+  });
+
+  publish();
+}
+
 async function startDubbing(videoId: string): Promise<void> {
   const video = findVideoElement();
   if (!video) {
-    publishStatus({ videoId, error: "không tìm thấy thẻ video" });
+    publishStatus({ videoId, error: "khÃ´ng tÃ¬m tháº¥y tháº» video" });
     return;
   }
 
@@ -251,15 +344,8 @@ async function startDubbing(videoId: string): Promise<void> {
   try {
     const loaded = await loadCues(videoId);
     diagnostics = loaded.diagnostics;
-    if (loaded.cues.length === 0) {
-      publishStatus({
-        videoId,
-        source: "",
-        diagnostics,
-        error:
-          diagnostics.map((item) => `${item.source}: ${item.error ?? "?"}`).join(" | ") ||
-          "không lấy được caption",
-      });
+    if (FORCE_LIVE_MODE || loaded.cues.length === 0) {
+      await startLiveMode(video, videoId, diagnostics);
       return;
     }
     const { cues, source } = loaded;
@@ -354,7 +440,7 @@ function sync(): void {
     delete document.documentElement.dataset.ytdubfree;
     return;
   }
-  // SPA đổi chất lượng/param vẫn cùng video: giữ nguyên phiên lồng tiếng đang chạy.
+  // SPA Ä‘á»•i cháº¥t lÆ°á»£ng/param váº«n cÃ¹ng video: giá»¯ nguyÃªn phiÃªn lá»“ng tiáº¿ng Ä‘ang cháº¡y.
   if (videoId === currentVideo && enabled) {
     render();
     return;
@@ -416,3 +502,4 @@ export default defineContentScript({
     void init();
   },
 });
+

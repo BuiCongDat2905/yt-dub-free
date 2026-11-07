@@ -16,6 +16,7 @@ const browser = spawn(
     "--disable-gpu",
     "--no-first-run",
     "--no-default-browser-check",
+    "--autoplay-policy=no-user-gesture-required",
     `--user-data-dir=${profile}`,
     `--disable-extensions-except=${EXT}`,
     `--load-extension=${EXT}`,
@@ -101,10 +102,18 @@ try {
   await evaluate("document.getElementById('ytdubfree-badge').shadowRoot.querySelector('button').click()");
   console.log("clicked badge");
 
+  await sleep(1500);
+  await evaluate("document.querySelector('video')?.play()");
+  console.log("video.play()");
+
   const finalStatus = await waitFor(async () => {
     const status = await readDataset();
-    return status && (status.diagnostics?.length > 0 || status.stats || status.error) ? status : null;
-  }, "diagnostics", 120000);
+    if (!status) return null;
+    if (status.error) return status;
+    const audio = status.stats?.audio ?? 0;
+    if (status.live) return (status.live.lines >= 3 && audio >= 1) ? status : null;
+    return audio > 0 ? status : null;
+  }, "runtime status", 150000);
 
   console.log("--- dataset ---");
   console.log(JSON.stringify(finalStatus, null, 2));

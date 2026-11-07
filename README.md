@@ -60,6 +60,7 @@ caption/transcript → cắt câu → dịch VI → TTS → phát theo cue
 ```
 
 - Đồng hồ duy nhất là `video.currentTime`; audio chỉ là đầu ra, nên seek/đổi tốc độ không trôi.
+- Nếu không lấy được transcript (timedtext bị chặn, panel transcript không mở được), extension chuyển sang **đọc phụ đề đang hiện trên player**: tự bật CC, hứng từng câu khi video phát rồi dịch + TTS. Chế độ này trễ khoảng 1.2 giây so với phụ đề gốc.
 - Lệch quá 0.2 s thì tua lại audio; ngưỡng này nhỏ hơn 0.3 s theo yêu cầu.
 - Prefetch 4 câu phía trước, tuần tự, dừng khi tab ẩn.
 - Google TTS lỗi thì tự chuyển `speechSynthesis` của máy cho câu đó.
