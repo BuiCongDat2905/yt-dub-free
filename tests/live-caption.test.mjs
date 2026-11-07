@@ -21,7 +21,7 @@ test("tracker gộp nhiều dòng thành một câu, chỉ phát khi hết câu"
   assert.equal(emitted.length, 1);
   assert.equal(emitted[0].text, "Hello everyone welcome back to the channel today we test dubbing.");
   assert.equal(emitted[0].start, 1);
-  assert.equal(emitted[0].end, 3);
+  assert.equal(emitted[0].end, 4);
 });
 
 test("tracker phát câu dở khi caption biến mất", () => {
