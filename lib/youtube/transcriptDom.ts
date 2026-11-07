@@ -3,12 +3,14 @@ import { CaptionUnavailableError } from "../subtitle/types.ts";
 import { normalizeCues } from "../subtitle/parse.ts";
 
 const SEGMENT_SELECTOR = "ytd-transcript-segment-renderer";
-const TRANSCRIPT_BUTTON_SELECTOR = [
-  "ytd-video-description-transcript-section-renderer button",
-  "ytd-video-description-transcript-section-renderer yt-button-shape button",
-  "ytd-video-description-transcript-section-renderer a",
+const TRANSCRIPT_BUTTON_TEXT = /transcript|bản ghi|bảng điểm|bảng ghi|lời thoại|字幕/i;
+const EXPAND_SELECTOR = [
+  "ytd-text-inline-expander #expand",
+  "ytd-watch-metadata #expand",
+  "tp-yt-paper-button#expand",
+  "#description-inline-expander #expand",
+  "#expand",
 ].join(", ");
-const EXPAND_SELECTOR = "tp-yt-paper-button#expand, ytd-text-inline-expander#expand, #expand";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -25,6 +27,39 @@ function readSegments(doc: Document): Element[] {
   return Array.from(doc.querySelectorAll(SEGMENT_SELECTOR));
 }
 
+/** Click "thật": nhiều nút YouTube bỏ qua `.click()` trần. */
+function pressElement(element: Element): void {
+  const target = element as HTMLElement;
+  try {
+    target.scrollIntoView({ block: "center" });
+  } catch {
+    // bỏ qua nếu môi trường không hỗ trợ
+  }
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"] as const) {
+    const Ctor = type.startsWith("pointer") ? (globalThis.PointerEvent ?? MouseEvent) : MouseEvent;
+    target.dispatchEvent(new Ctor(type, { bubbles: true, cancelable: true, composed: true }));
+  }
+  target.click();
+}
+
+function expandDescription(doc: Document): void {
+  const candidate = doc.querySelector<HTMLElement>(EXPAND_SELECTOR);
+  if (candidate) pressElement(candidate);
+}
+
+function findTranscriptButton(doc: Document): HTMLElement | null {
+  const candidates = Array.from(
+    doc.querySelectorAll<HTMLElement>(
+      "ytd-video-description-transcript-section-renderer button, ytd-video-description-transcript-section-renderer yt-button-shape button, ytd-video-description-transcript-section-renderer a, yt-button-shape button, button, a",
+    ),
+  );
+  for (const element of candidates) {
+    const label = `${element.textContent ?? ""} ${element.getAttribute("aria-label") ?? ""}`.trim();
+    if (TRANSCRIPT_BUTTON_TEXT.test(label)) return element;
+  }
+  return null;
+}
+
 async function waitForSegments(doc: Document, timeoutMs: number): Promise<Element[]> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -35,35 +70,32 @@ async function waitForSegments(doc: Document, timeoutMs: number): Promise<Elemen
   return [];
 }
 
-function clickTranscriptButton(doc: Document): boolean {
-  const candidates = Array.from(doc.querySelectorAll(TRANSCRIPT_BUTTON_SELECTOR)) as HTMLElement[];
-  const button = candidates.find((element) => /transcript|bảng điểm|bảng ghi|phụ đề/i.test(element.textContent ?? ""));
-  if (!button) return false;
-  button.scrollIntoView({ block: "center" });
-  button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-  return true;
-}
-
-/** Đọc transcript từ panel của YouTube. Chỉ chạy được trong content script. */
-export async function readTranscriptFromPage(doc: Document = document, timeoutMs = 20000): Promise<Cue[]> {
+/** Đọc transcript từ panel giao diện; thử cả 2 kiểu mở panel. */
+export async function readTranscriptFromPage(doc: Document = document, timeoutMs = 25000): Promise<Cue[]> {
   let nodes = readSegments(doc);
 
   if (nodes.length === 0) {
-    const expand = doc.querySelector(EXPAND_SELECTOR) as HTMLElement | null;
-    expand?.click();
-    await sleep(600);
-
-    if (!clickTranscriptButton(doc)) {
-      const expandAgain = doc.querySelector(EXPAND_SELECTOR) as HTMLElement | null;
-      expandAgain?.click();
-      await sleep(600);
-      clickTranscriptButton(doc);
+    for (let attempt = 0; attempt < 2 && nodes.length === 0; attempt += 1) {
+      expandDescription(doc);
+      await sleep(700);
+      const button = findTranscriptButton(doc);
+      if (button) pressElement(button);
+      else if (attempt === 0) {
+        // Panel có thể đã mở sẵn từ lần trước hoặc nút nằm trong menu "khác".
+        const more = doc.querySelector<HTMLElement>(
+          "ytd-watch-metadata #expand, ytd-menu-renderer yt-icon-button, #description ytd-text-inline-expander",
+        );
+        if (more) pressElement(more);
+      }
+      nodes = await waitForSegments(doc, Math.max(4000, Math.floor(timeoutMs / 2)));
     }
-    nodes = await waitForSegments(doc, timeoutMs);
   }
 
   if (nodes.length === 0) {
-    throw new CaptionUnavailableError("video không có panel transcript để đọc");
+    const hasRenderer = doc.querySelectorAll("ytd-transcript-renderer").length > 0;
+    throw new CaptionUnavailableError(
+      hasRenderer ? "panel transcript mở nhưng không có segment" : "video không có panel transcript để đọc",
+    );
   }
 
   const segments = nodes

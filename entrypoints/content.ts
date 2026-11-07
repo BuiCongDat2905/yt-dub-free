@@ -18,6 +18,7 @@ import { SystemTtsProvider } from "@/lib/tts/system";
 import { SubtitleOverlay } from "@/lib/ui/overlay";
 import { fetchCuesForTrack, pickTrack } from "@/lib/youtube/captions";
 import { getCaptionTracks } from "@/lib/youtube/innertube";
+import { fetchCaptionTracksViaAndroid } from "@/lib/youtube/playerAndroid";
 import { readTranscriptFromPage } from "@/lib/youtube/transcriptDom";
 import {
   collectPageSource,
@@ -169,6 +170,7 @@ async function loadCues(
   videoId: string,
 ): Promise<{ cues: Cue[]; source: string; diagnostics: TranscriptDiagnostic[] }> {
   const diagnostics: TranscriptDiagnostic[] = [];
+  let pageSourceFromHtml = "";
 
   if (activeTrack) {
     try {
@@ -193,8 +195,8 @@ async function loadCues(
 
   // Đường 2: tải lại HTML trang rồi thử lại (script nội trang có thể đã bị YouTube dọn).
   try {
-    const pageSource = await fetchWatchPageSource(videoId);
-    const secondTry = await fetchTranscriptViaInnertube({ videoId, pageSource });
+    pageSourceFromHtml = await fetchWatchPageSource(videoId);
+    const secondTry = await fetchTranscriptViaInnertube({ videoId, pageSource: pageSourceFromHtml });
     diagnostics.push({ ...secondTry.diagnostic, source: "innertube-transcript-html" });
     if (secondTry.cues.length > 0) {
       return { cues: secondTry.cues, source: "innertube-transcript-html", diagnostics };
@@ -207,7 +209,36 @@ async function loadCues(
     });
   }
 
-  // Đường 3: mở panel transcript trên giao diện rồi đọc DOM.
+  // Đường 3: xin caption track qua InnerTube client ANDROID rồi tải timedtext.
+  try {
+    const android = await fetchCaptionTracksViaAndroid({
+      videoId,
+      pageSource: pageSourceFromHtml || collectPageSource(document),
+      fetchImpl: fetch,
+    });
+    diagnostics.push(android.diagnostic);
+    for (const track of android.tracks.slice(0, 3)) {
+      try {
+        const cues = await fetchCuesForTrack(track);
+        diagnostics.push({ source: `timedtext-android:${track.languageCode}`, ok: true, cues: cues.length });
+        return { cues, source: "timedtext-android", diagnostics };
+      } catch (error) {
+        diagnostics.push({
+          source: `timedtext-android:${track.languageCode}`,
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  } catch (error) {
+    diagnostics.push({
+      source: "player-android",
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // Đường 4: mở panel transcript trên giao diện rồi đọc DOM.
   try {
     const cues = await readTranscriptFromPage(document, CUE_TIMEOUT_MS);
     diagnostics.push({ source: "transcript-panel", ok: true, cues: cues.length });
