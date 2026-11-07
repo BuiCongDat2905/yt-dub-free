@@ -19,6 +19,12 @@ import { SubtitleOverlay } from "@/lib/ui/overlay";
 import { fetchCuesForTrack, pickTrack } from "@/lib/youtube/captions";
 import { getCaptionTracks } from "@/lib/youtube/innertube";
 import { readTranscriptFromPage } from "@/lib/youtube/transcriptDom";
+import {
+  collectPageSource,
+  fetchTranscriptViaInnertube,
+  fetchWatchPageSource,
+  type TranscriptDiagnostic,
+} from "@/lib/youtube/transcriptInnertube";
 
 const HOST_STYLE = "position:fixed;right:16px;bottom:88px;z-index:2147483000;";
 const CUE_TIMEOUT_MS = 25000;
@@ -51,6 +57,7 @@ interface CaptionStatus {
   segments?: number;
   source?: string;
   stats?: Record<string, number>;
+  diagnostics?: TranscriptDiagnostic[];
   settings?: Settings;
   error?: string;
 }
@@ -158,26 +165,62 @@ async function loadCaptionTracks(videoId: string): Promise<void> {
   }
 }
 
-async function loadCues(): Promise<{ cues: Cue[]; source: string }> {
-  const failures: string[] = [];
+async function loadCues(
+  videoId: string,
+): Promise<{ cues: Cue[]; source: string; diagnostics: TranscriptDiagnostic[] }> {
+  const diagnostics: TranscriptDiagnostic[] = [];
 
   if (activeTrack) {
     try {
-      return { cues: await fetchCuesForTrack(activeTrack), source: "timedtext" };
+      const cues = await fetchCuesForTrack(activeTrack);
+      diagnostics.push({ source: "timedtext", ok: true, cues: cues.length });
+      return { cues, source: "timedtext", diagnostics };
     } catch (error) {
-      failures.push(error instanceof Error ? error.message : String(error));
+      diagnostics.push({
+        source: "timedtext",
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   } else {
-    failures.push("không có caption track");
+    diagnostics.push({ source: "timedtext", ok: false, error: "không có caption track" });
   }
 
+  // Đường 1: gọi InnerTube get_transcript bằng params của chính trang.
+  const firstTry = await fetchTranscriptViaInnertube({ videoId, pageSource: collectPageSource(document) });
+  diagnostics.push(firstTry.diagnostic);
+  if (firstTry.cues.length > 0) return { cues: firstTry.cues, source: "innertube-transcript", diagnostics };
+
+  // Đường 2: tải lại HTML trang rồi thử lại (script nội trang có thể đã bị YouTube dọn).
   try {
-    return { cues: await readTranscriptFromPage(document, CUE_TIMEOUT_MS), source: "transcript-panel" };
+    const pageSource = await fetchWatchPageSource(videoId);
+    const secondTry = await fetchTranscriptViaInnertube({ videoId, pageSource });
+    diagnostics.push({ ...secondTry.diagnostic, source: "innertube-transcript-html" });
+    if (secondTry.cues.length > 0) {
+      return { cues: secondTry.cues, source: "innertube-transcript-html", diagnostics };
+    }
   } catch (error) {
-    failures.push(error instanceof Error ? error.message : String(error));
+    diagnostics.push({
+      source: "innertube-transcript-html",
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
-  throw new CaptionUnavailableError(failures.join(" | "));
+  // Đường 3: mở panel transcript trên giao diện rồi đọc DOM.
+  try {
+    const cues = await readTranscriptFromPage(document, CUE_TIMEOUT_MS);
+    diagnostics.push({ source: "transcript-panel", ok: true, cues: cues.length });
+    return { cues, source: "transcript-panel", diagnostics };
+  } catch (error) {
+    diagnostics.push({
+      source: "transcript-panel",
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  throw new CaptionUnavailableError(diagnostics.map((item) => `${item.source}: ${item.error ?? "?"}`).join(" | "));
 }
 
 async function startDubbing(videoId: string): Promise<void> {
@@ -189,9 +232,12 @@ async function startDubbing(videoId: string): Promise<void> {
 
   busy = true;
   render();
+  let diagnostics: TranscriptDiagnostic[] = [];
 
   try {
-    const { cues, source } = await loadCues();
+    const loaded = await loadCues(videoId);
+    diagnostics = loaded.diagnostics;
+    const { cues, source } = loaded;
     if (!enabled) return;
 
     const ttsFetch = createBackgroundFetch();
@@ -248,9 +294,14 @@ async function startDubbing(videoId: string): Promise<void> {
       cues: prepared.stats.cues,
       segments: prepared.stats.cues,
       stats: prepared.stats,
+      diagnostics,
     });
   } catch (error) {
-    publishStatus({ videoId, error: error instanceof Error ? error.message : String(error) });
+    publishStatus({
+      videoId,
+      diagnostics,
+      error: error instanceof Error ? error.message : String(error),
+    });
   } finally {
     busy = false;
     render();
