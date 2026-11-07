@@ -146,6 +146,15 @@ function applyVolumes(): void {
   if (audioElement) audioElement.volume = settings.dubVolume;
 }
 
+/** Chỉ vẽ phụ đề khi người dùng bật trong popup. */
+function showSubtitleText(text: string): void {
+  if (!settings.showSubtitle || text.trim() === "") {
+    overlay.clear();
+    return;
+  }
+  overlay.setText(text);
+}
+
 function stopDubbing(): void {
   if (liveTicker !== null) {
     window.clearInterval(liveTicker);
@@ -328,7 +337,7 @@ async function startLiveMode(
         overlay.clear();
         return;
       }
-      overlay.setText(translated[decision.index] || liveCues[decision.index]?.text || "");
+      showSubtitleText(translated[decision.index] || liveCues[decision.index]?.text || "");
     },
   });
 
@@ -433,7 +442,7 @@ async function startDubbing(videoId: string): Promise<void> {
           overlay.clear();
           return;
         }
-        overlay.setText(prepared.cues[decision.index]?.text ?? "");
+        showSubtitleText(prepared.cues[decision.index]?.text ?? "");
         prefetch?.ensureFrom(decision.index + 1);
       },
     });
@@ -509,6 +518,7 @@ function watchSettings(): void {
     if (area !== "sync" || !changes[SETTINGS_KEY]) return;
     settings = normalizeSettings(changes[SETTINGS_KEY]?.newValue);
     applyVolumes();
+    if (!settings.showSubtitle) overlay.clear();
     render();
   });
 }

@@ -29,3 +29,9 @@ test("normalizeSettings chỉ nhận boolean cho enabled", () => {
   assert.equal(normalizeSettings({ enabled: false }).enabled, false);
   assert.equal(normalizeSettings({ enabled: 1 }).enabled, false);
 });
+
+test("normalizeSettings mặc định tắt phụ đề, chỉ nhận boolean", () => {
+  assert.equal(normalizeSettings(undefined).showSubtitle, false);
+  assert.equal(normalizeSettings({ showSubtitle: true }).showSubtitle, true);
+  assert.equal(normalizeSettings({ showSubtitle: 1 }).showSubtitle, false);
+});

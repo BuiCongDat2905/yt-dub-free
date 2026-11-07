@@ -1,4 +1,5 @@
 import { TTS_MAX_CHARS } from "../config.ts";
+import { splitMixedSegments } from "../glossary/terms.ts";
 import { TtsUnavailableError, concatBytes, type TtsProvider } from "./provider.ts";
 
 const ENDPOINT = "https://translate.google.com/translate_tts";
@@ -34,27 +35,35 @@ export function splitForTts(text: string, maxChars = TTS_MAX_CHARS): string[] {
 export class GoogleTtsProvider implements TtsProvider {
   readonly name = "google-tts";
   private readonly lang: string;
+  private readonly englishLang: string;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(options: { lang?: string; fetchImpl?: typeof fetch } = {}) {
+  constructor(options: { lang?: string; englishLang?: string; fetchImpl?: typeof fetch } = {}) {
     this.lang = options.lang ?? "vi";
+    this.englishLang = options.englishLang ?? "en";
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
   async synthesize(text: string, signal?: AbortSignal): Promise<Uint8Array> {
-    const chunks = splitForTts(text);
-    if (chunks.length === 0) throw new TtsUnavailableError("câu rỗng, không có gì để đọc");
+    // Thuật ngữ CNTT giữ tiếng Anh được đọc bằng giọng Anh; phần còn lại giọng Việt.
+    const segments = splitMixedSegments(text);
+    if (segments.length === 0) throw new TtsUnavailableError("câu rỗng, không có gì để đọc");
 
     const buffers: Uint8Array[] = [];
-    for (const chunk of chunks) {
-      const response = await this.fetchImpl(buildTtsUrl(chunk, this.lang), { signal });
-      if (!response.ok) {
-        throw new TtsUnavailableError(`Google TTS trả HTTP ${response.status}`, response.status);
+    for (const segment of segments) {
+      const lang = segment.lang === "en" ? this.englishLang : this.lang;
+      const chunks = splitForTts(segment.text);
+      for (const chunk of chunks) {
+        const response = await this.fetchImpl(buildTtsUrl(chunk, lang), { signal });
+        if (!response.ok) {
+          throw new TtsUnavailableError(`Google TTS trả HTTP ${response.status}`, response.status);
+        }
+        const buffer = new Uint8Array(await response.arrayBuffer());
+        if (buffer.length < 512) throw new TtsUnavailableError(`audio quá ngắn: ${buffer.length} byte`);
+        buffers.push(buffer);
       }
-      const buffer = new Uint8Array(await response.arrayBuffer());
-      if (buffer.length < 512) throw new TtsUnavailableError(`audio quá ngắn: ${buffer.length} byte`);
-      buffers.push(buffer);
     }
+    if (buffers.length === 0) throw new TtsUnavailableError("câu rỗng, không có gì để đọc");
     return concatBytes(buffers);
   }
 }

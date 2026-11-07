@@ -33,6 +33,18 @@ export function computeFitRate(audioDuration: number, windowSeconds: number, max
   return Math.min(Math.max(1, maxRate), Math.max(1, rate));
 }
 
+/** Có nên phát lại câu đang bị dừng (audio chưa từng phát xong) hay không. */
+export function shouldRetryLateAudio(
+  finished: ReadonlySet<number>,
+  index: number,
+  audioPaused: boolean,
+  videoPaused: boolean,
+): boolean {
+  if (videoPaused) return false;
+  if (!audioPaused) return false;
+  return !finished.has(index);
+}
+
 /**
  * Phát audio lồng tiếng bám theo video gốc.
  * Đồng hồ duy nhất là `video.currentTime`. Câu đang nói không bị cắt giữa từ:
@@ -59,6 +71,11 @@ export class DubEngine {
   private running = false;
   private cuts = 0;
 
+  private readonly finished = new Set<number>();
+  private playingIndex = -1;
+  private readonly handleEnded = (): void => {
+    if (this.playingIndex >= 0) this.finished.add(this.playingIndex);
+  };
   private readonly handlePlay = (): void => {
     if (this.scheduler.index >= 0) void this.audio.play().catch(() => {});
   };
@@ -67,6 +84,8 @@ export class DubEngine {
     this.pending = null;
   };
   private readonly handleSeeked = (): void => {
+    this.finished.clear();
+    this.playingIndex = -1;
     if (this.queueMode) {
       const timeline = this.scheduler.update(this.video.currentTime, 0);
       this.queueIndex = timeline.action === "stop" ? -1 : Math.max(-1, timeline.index - 1);
@@ -143,6 +162,7 @@ export class DubEngine {
     this.video.addEventListener("pause", this.handlePause);
     this.video.addEventListener("seeked", this.handleSeeked);
     this.video.addEventListener("ratechange", this.handleRate);
+    this.audio.addEventListener("ended", this.handleEnded);
     this.timer = window.setInterval(() => this.tick(), this.tickMs);
     this.tick();
   }
@@ -162,10 +182,13 @@ export class DubEngine {
     this.video.removeEventListener("pause", this.handlePause);
     this.video.removeEventListener("seeked", this.handleSeeked);
     this.video.removeEventListener("ratechange", this.handleRate);
+    this.audio.removeEventListener("ended", this.handleEnded);
     this.audio.pause();
     this.audio.removeAttribute("src");
     this.video.volume = this.previousVolume;
     this.pending = null;
+    this.finished.clear();
+    this.playingIndex = -1;
     this.scheduler.reset();
   }
 
@@ -203,6 +226,7 @@ export class DubEngine {
       return;
     }
     if (this.audio.src !== source) this.audio.src = source;
+    this.playingIndex = index;
     this.audio.currentTime = offset;
     const baseRate = this.fitToCue
       ? computeFitRate(this.audio.duration, this.cueWindow(index, offset), this.maxFitRate)
@@ -283,6 +307,7 @@ export class DubEngine {
     this.pendingStop = null;
 
     if (decision.action === "play") {
+      this.finished.delete(decision.index);
       if (this.isSpeaking()) {
         if (!this.pending) {
           this.pending = { index: decision.index, offset: decision.offset, due: performance.now() + this.holdMs };
@@ -313,7 +338,7 @@ export class DubEngine {
 
     this.applyFitRate(decision.index, decision.offset);
 
-    if (!this.video.paused && this.audio.paused) {
+    if (shouldRetryLateAudio(this.finished, decision.index, this.audio.paused, this.video.paused)) {
       const source = this.sourceFor(decision.index);
       if (source) {
         if (this.audio.src !== source) this.audio.src = source;

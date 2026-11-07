@@ -2,6 +2,8 @@ export interface Settings {
   enabled: boolean;
   originalVolume: number;
   dubVolume: number;
+  /** Hiện phụ đề tiếng Việt đè lên video. Mặc định tắt. */
+  showSubtitle: boolean;
 }
 
 export const SETTINGS_KEY = "ytdubfree.settings";
@@ -10,6 +12,7 @@ export const DEFAULT_SETTINGS: Settings = {
   enabled: false,
   originalVolume: 0.1,
   dubVolume: 1,
+  showSubtitle: false,
 };
 
 function clamp01(value: unknown, fallback: number): number {
@@ -24,6 +27,7 @@ export function normalizeSettings(input: unknown): Settings {
     enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_SETTINGS.enabled,
     originalVolume: clamp01(raw.originalVolume, DEFAULT_SETTINGS.originalVolume),
     dubVolume: clamp01(raw.dubVolume, DEFAULT_SETTINGS.dubVolume),
+    showSubtitle: typeof raw.showSubtitle === "boolean" ? raw.showSubtitle : DEFAULT_SETTINGS.showSubtitle,
   };
 }
 

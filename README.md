@@ -10,10 +10,11 @@ Repo: https://github.com/BuiCongDat2905/yt-dub-free
 
 - Lấy caption/transcript của video YouTube, cắt thành câu dễ đọc.
 - Dịch sang tiếng Việt bằng Google Translate công khai, có cache.
+- Thuật ngữ CNTT (React, API, cache, model...) giữ nguyên tiếng Anh và được đọc bằng giọng Anh; phần còn lại đọc giọng Việt. Miễn phí.
 - Tổng hợp giọng đọc tiếng Việt bằng Google TTS, có cache audio.
-- Phát audio lồng tiếng bám theo đồng hồ video: seek, pause, đổi tốc độ đều khớp.
-- Hạ âm lượng tiếng gốc, hiện phụ đề tiếng Việt trên player.
-- Hotkey `Alt+D`; popup chỉnh âm lượng gốc/lồng và tự bật khi mở video.
+- Phát audio lồng tiếng bám theo đồng hồ video: seek, pause, đổi tốc độ đều khớp; không phát lại câu đã đọc xong.
+- Hạ âm lượng tiếng gốc. Phụ đề tiếng Việt trên player là tuỳ chọn, **mặc định tắt**.
+- Hotkey `Alt+D`; popup chỉnh âm lượng gốc/lồng, bật phụ đề, tự bật khi mở video.
 - Cache trong IndexedDB nên lần phát lại không gọi mạng.
 
 Chỉ chạy trên `www.youtube.com`. Không hỗ trợ `m.youtube.com`, video nhúng, hay site khác.
@@ -51,7 +52,7 @@ Lần đầu sẽ mất vài giây để lấy caption, dịch và tổng hợp 
 
 - `Alt+D`: bật/tắt lồng tiếng.
 - Badge dưới player: trạng thái `OFF` / `Đang chuẩn bị…` / `ON`.
-- Popup: kéo **Tiếng gốc** (mặc định `0.10`) và **Tiếng lồng** (`1.00`), tick **Tự bật khi mở video**.
+- Popup: kéo **Tiếng gốc** (mặc định `0.10`) và **Tiếng lồng** (`1.00`), tick **Hiện phụ đề tiếng Việt** (mặc định tắt), tick **Tự bật khi mở video**.
 
 ## Cách hoạt động
 
@@ -60,6 +61,8 @@ caption/transcript → cắt câu → dịch VI → TTS → phát theo cue
 ```
 
 - Đồng hồ duy nhất là `video.currentTime`; audio chỉ là đầu ra, nên seek/đổi tốc độ không trôi.
+- Thuật ngữ CNTT được thay bằng token `[[n]]` trước khi dịch, hoàn lại sau khi dịch; khi đọc, câu được tách thành đoạn Việt/Anh để dùng đúng giọng.
+- Câu đã phát xong được đánh dấu; engine không phát lại đoạn đó khi video còn trong khung cue (chống lặp ở cuối cụm).
 - Nếu không lấy được transcript (timedtext bị chặn, panel transcript không mở được), extension chuyển sang **đọc phụ đề đang hiện trên player**: tự bật CC, hứng từng câu khi video phát rồi dịch + TTS. Chế độ này trễ khoảng 1.2 giây so với phụ đề gốc.
 - Lệch quá 0.2 s thì tua lại audio; ngưỡng này nhỏ hơn 0.3 s theo yêu cầu.
 - Prefetch 4 câu phía trước, tuần tự, dừng khi tab ẩn.

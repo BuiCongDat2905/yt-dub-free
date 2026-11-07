@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { PlaybackScheduler, findCueIndexAt } from "../lib/player/sync.ts";
-import { computeFitRate } from "../lib/player/engine.ts";
+import { computeFitRate, shouldRetryLateAudio } from "../lib/player/engine.ts";
 
 const cue = (start, end, text) => ({ start, end, text });
 
@@ -85,6 +85,14 @@ test("scheduler: NaN audioTime thì coi là lệch và resync", () => {
   scheduler.update(1, 1);
   const decision = scheduler.update(1.1, Number.NaN);
   assert.equal(decision.action, "resync");
+});
+
+test("shouldRetryLateAudio không phát lại cue đã đọc xong", () => {
+  const finished = new Set([0]);
+  assert.equal(shouldRetryLateAudio(finished, 0, true, false), false, "cue đã đọc xong thì không phát lại");
+  assert.equal(shouldRetryLateAudio(finished, 1, true, false), true, "cue mới thì được phát");
+  assert.equal(shouldRetryLateAudio(new Set(), 0, false, false), false, "audio đang chạy thì không can thiệp");
+  assert.equal(shouldRetryLateAudio(new Set(), 0, true, true), false, "video dừng thì không phát");
 });
 
 test("computeFitRate tăng tốc vừa khung cue, có trần 1.6x", () => {
