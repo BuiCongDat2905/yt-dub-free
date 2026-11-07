@@ -82,7 +82,8 @@ export class CaptionLineTracker {
     if (this.sentence === "") this.sentenceStart = line.start;
     this.sentence = `${this.sentence} ${line.text}`.trim();
     const duration = line.end - this.sentenceStart;
-    const complete = SENTENCE_END.test(this.sentence) || this.sentence.length >= this.maxChars || duration >= this.maxSeconds;
+    const complete =
+      SENTENCE_END.test(this.sentence) || this.sentence.length >= this.maxChars || duration >= this.maxSeconds;
     if (!complete) return [];
     const emitted = this.takeSentence(line.end);
     return emitted ? [emitted] : [];
@@ -106,9 +107,17 @@ export function readCaptionText(doc: Document = document): string {
   return segments.map((segment) => segment.textContent ?? "").join(" ");
 }
 
+export interface LiveCaptionStats {
+  mutations: number;
+  emitted: number;
+  rawLength: number;
+  ccEnabled: boolean;
+}
+
 export interface LiveCaptionHandle {
   stop(): void;
   enabledCc: boolean;
+  stats(): LiveCaptionStats;
 }
 
 /** Đọc phụ đề ngay trên player (không cần API/panel). Bật CC nếu chưa bật. */
@@ -126,19 +135,30 @@ export function startLiveCaptions(
 
   const player = video.closest("#movie_player") ?? doc.body;
   const tracker = new CaptionLineTracker();
+  const counters = { mutations: 0, emitted: 0, rawLength: 0 };
   let emitTimer: number | null = null;
   let stopped = false;
 
   const emit = (at: number): void => {
-    for (const line of tracker.flush(at)) onLine(line);
+    for (const line of tracker.flush(at)) {
+      counters.emitted += 1;
+      onLine(line);
+    }
   };
 
   const handle = (): void => {
     if (stopped) return;
-    for (const line of tracker.push(readCaptionText(doc), video.currentTime)) onLine(line);
+    const raw = readCaptionText(doc);
+    counters.rawLength = raw.length;
+    for (const line of tracker.push(raw, video.currentTime)) {
+      counters.emitted += 1;
+      onLine(line);
+    }
   };
 
   const scheduleEmit = (): void => {
+    if (stopped) return;
+    counters.mutations += 1;
     if (emitTimer !== null) window.clearTimeout(emitTimer);
     emitTimer = window.setTimeout(() => {
       emitTimer = null;
@@ -152,6 +172,9 @@ export function startLiveCaptions(
 
   return {
     enabledCc,
+    stats(): LiveCaptionStats {
+      return { ...counters, ccEnabled: button?.getAttribute("aria-pressed") === "true" };
+    },
     stop(): void {
       if (stopped) return;
       stopped = true;

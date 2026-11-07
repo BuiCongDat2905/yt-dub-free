@@ -67,6 +67,12 @@ export class DubEngine {
     this.pending = null;
   };
   private readonly handleSeeked = (): void => {
+    if (this.queueMode) {
+      const timeline = this.scheduler.update(this.video.currentTime, 0);
+      this.queueIndex = timeline.action === "stop" ? -1 : Math.max(-1, timeline.index - 1);
+      this.audio.pause();
+      this.audio.removeAttribute("src");
+    }
     this.tick();
   };
   private readonly handleRate = (): void => {

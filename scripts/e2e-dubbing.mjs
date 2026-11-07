@@ -139,6 +139,7 @@ try {
     }
     const live = status.live ?? {};
     const debug = live.debug ?? {};
+    const tracker = live.tracker ?? {};
     samples.push({
       lines: live.lines ?? 0,
       audio: status.stats?.audio ?? 0,
@@ -147,6 +148,10 @@ try {
       speaking: debug.speaking === true,
       audioTime: debug.audioTime ?? -1,
       rate: debug.rate ?? -1,
+      mut: tracker.mutations ?? -1,
+      raw: tracker.rawLength ?? -1,
+      emitted: tracker.emitted ?? -1,
+      cc: tracker.ccEnabled === true,
     });
     if ((live.lines ?? 0) >= 5 && (status.stats?.audio ?? 0) >= 3) break;
   }
@@ -156,7 +161,8 @@ try {
   for (const [index, sample] of samples.entries()) {
     console.log(
       `t=${index + 1}s lines=${sample.lines} audio=${sample.audio} cuts=${sample.cuts} skips=${sample.skips} ` +
-        `speaking=${sample.speaking ? "Y" : "-"} audioTime=${sample.audioTime} rate=${sample.rate}` +
+        `speaking=${sample.speaking ? "Y" : "-"} audioTime=${sample.audioTime} rate=${sample.rate} ` +
+        `mut=${sample.mut} raw=${sample.raw} emitted=${sample.emitted} cc=${sample.cc ? "Y" : "-"}` +
         (sample.error ? ` error=${sample.error}` : ""),
     );
   }
