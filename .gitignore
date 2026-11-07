@@ -1,0 +1,8 @@
+.output
+.wxt
+.headless-test
+node_modules
+*.log
+spike/*.mp3
+spike/out.mp3
+docs/*.tmp.png

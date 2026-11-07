@@ -1,0 +1,10 @@
+{
+  "name": "edge-tts-spike",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "dependencies": {
+    "edge-tts-universal": "^1.4.0",
+    "msedge-tts": "^2.1.1"
+  }
+}
