@@ -2,14 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildTranscriptParams,
   extractInnertubeConfig,
   extractTranscriptParams,
+  extractTranscriptParamsCandidates,
   parseTranscriptSegments,
+  pickTranscriptParams,
 } from "../lib/youtube/transcriptInnertube.ts";
+
+const PARAMS_MAIN = "CgtkUXc0dzlXZ1hjURIOQ2dBU0FtVnVHZ0ElM0QY";
+const PARAMS_OTHER = "CgtvdGhlclZpZGVv";
 
 const HTML = `
 <script nonce="x">var ytcfg={};ytcfg.set({"INNERTUBE_API_KEY":"AIzaSyFAKE_KEY_123","INNERTUBE_CLIENT_VERSION":"2.20261105.05.01","VISITOR_DATA":"Cgt2aXNpdG9yRGF0YQ%3D%3D"});</script>
-<script nonce="y">var ytInitialData={"engagementPanels":[{"panel":{"getTranscriptEndpoint":{"params":"CgtkUXc0dzlXZ1hjURIOQ2dBU0FtVnVHZ0ElM0QY"}}}]};</script>
+<script nonce="y">var ytInitialData={"engagementPanels":[{"panel":{"getTranscriptEndpoint":{"params":"${PARAMS_MAIN}"}}}]};</script>
+<script nonce="z">var sideBar={"x":{"getTranscriptEndpoint":{"params":"${PARAMS_OTHER}"}}};</script>
 `;
 
 const TRANSCRIPT_PAYLOAD = {
@@ -48,22 +55,48 @@ const TRANSCRIPT_PAYLOAD = {
   ],
 };
 
-test("extractInnertubeConfig lấy api key, client version, visitor data", () => {
+test("extractInnertubeConfig decode visitorData và lấy api key/client version", () => {
   const config = extractInnertubeConfig(HTML);
   assert.equal(config.apiKey, "AIzaSyFAKE_KEY_123");
   assert.equal(config.clientVersion, "2.20261105.05.01");
-  assert.equal(config.visitorData, "Cgt2aXNpdG9yRGF0YQ%3D%3D");
+  assert.equal(config.visitorData, "Cgt2aXNpdG9yRGF0YQ==", "phải decode %3D%3D");
 
-  const empty = extractInnertubeConfig("<html></html>");
-  assert.deepEqual(empty, { apiKey: null, clientVersion: null, visitorData: null });
+  assert.deepEqual(extractInnertubeConfig("<html></html>"), {
+    apiKey: null,
+    clientVersion: null,
+    visitorData: null,
+  });
 });
 
-test("extractTranscriptParams lấy params từ ytInitialData", () => {
-  assert.equal(
-    extractTranscriptParams(HTML),
-    "CgtkUXc0dzlXZ1hjURIOQ2dBU0FtVnVHZ0ElM0QY",
-  );
-  assert.equal(extractTranscriptParams("<html></html>"), null);
+test("extractTranscriptParamsCandidates gom mọi endpoint, không trùng", () => {
+  const candidates = extractTranscriptParamsCandidates(HTML);
+  assert.equal(candidates.length, 2);
+  assert.ok(candidates.includes(PARAMS_MAIN));
+  assert.ok(candidates.includes(PARAMS_OTHER));
+  assert.equal(extractTranscriptParams(HTML), PARAMS_MAIN);
+});
+
+test("pickTranscriptParams chọn params chứa đúng videoId", () => {
+  const forRick = pickTranscriptParams(HTML, "dQw4w9WgXcQ");
+  assert.equal(forRick.matched, true);
+  assert.equal(forRick.params, PARAMS_MAIN);
+  assert.equal(forRick.candidates, 2);
+
+  const forOther = pickTranscriptParams(HTML, "otherVideo");
+  assert.equal(forOther.matched, true);
+  assert.equal(forOther.params, PARAMS_OTHER);
+
+  const unknown = pickTranscriptParams(HTML, "khongCoVideoNay");
+  assert.equal(unknown.matched, false);
+  assert.equal(unknown.params, PARAMS_MAIN, "fallback candidate đầu tiên");
+});
+
+test("buildTranscriptParams tạo protobuf hợp lệ chứa videoId", () => {
+  const params = buildTranscriptParams("dQw4w9WgXcQ");
+  const decoded = atob(params);
+  assert.ok(decoded.includes("dQw4w9WgXcQ"));
+  assert.equal(decoded.charCodeAt(0), 0x0a);
+  assert.equal(decoded.charCodeAt(1), 11);
 });
 
 test("parseTranscriptSegments đọc runs, simpleText, bỏ segment rỗng", () => {

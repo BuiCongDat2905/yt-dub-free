@@ -18,7 +18,7 @@ import { SystemTtsProvider } from "@/lib/tts/system";
 import { SubtitleOverlay } from "@/lib/ui/overlay";
 import { fetchCuesForTrack, pickTrack } from "@/lib/youtube/captions";
 import { getCaptionTracks } from "@/lib/youtube/innertube";
-import { fetchCaptionTracksViaAndroid } from "@/lib/youtube/playerAndroid";
+import { fetchCaptionTracksViaPlayer } from "@/lib/youtube/transcriptInnertube";
 import { readTranscriptFromPage } from "@/lib/youtube/transcriptDom";
 import {
   collectPageSource,
@@ -29,6 +29,7 @@ import {
 
 const HOST_STYLE = "position:fixed;right:16px;bottom:88px;z-index:2147483000;";
 const CUE_TIMEOUT_MS = 25000;
+const PANEL_TIMEOUT_MS = 12000;
 const SHADOW_HTML = `
   <style>
     :host { all: initial; }
@@ -170,88 +171,70 @@ async function loadCues(
   videoId: string,
 ): Promise<{ cues: Cue[]; source: string; diagnostics: TranscriptDiagnostic[] }> {
   const diagnostics: TranscriptDiagnostic[] = [];
-  let pageSourceFromHtml = "";
+  const pageSource = collectPageSource(document);
+  const message = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-  if (activeTrack) {
+  const tryTrack = async (
+    track: CaptionTrack | null | undefined,
+    label: string,
+  ): Promise<Cue[] | null> => {
+    if (!track) return null;
     try {
-      const cues = await fetchCuesForTrack(activeTrack);
-      diagnostics.push({ source: "timedtext", ok: true, cues: cues.length });
-      return { cues, source: "timedtext", diagnostics };
+      const cues = await fetchCuesForTrack(track);
+      diagnostics.push({ source: label, ok: true, cues: cues.length });
+      return cues;
     } catch (error) {
-      diagnostics.push({
-        source: "timedtext",
-        ok: false,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      diagnostics.push({ source: label, ok: false, error: message(error) });
+      return null;
     }
-  } else {
-    diagnostics.push({ source: "timedtext", ok: false, error: "không có caption track" });
-  }
+  };
 
-  // Đường 1: gọi InnerTube get_transcript bằng params của chính trang.
-  const firstTry = await fetchTranscriptViaInnertube({ videoId, pageSource: collectPageSource(document) });
-  diagnostics.push(firstTry.diagnostic);
-  if (firstTry.cues.length > 0) return { cues: firstTry.cues, source: "innertube-transcript", diagnostics };
+  const fromPageTrack = await tryTrack(activeTrack, "timedtext");
+  if (fromPageTrack) return { cues: fromPageTrack, source: "timedtext", diagnostics };
+  if (!activeTrack) diagnostics.push({ source: "timedtext", ok: false, error: "không có caption track" });
 
-  // Đường 2: tải lại HTML trang rồi thử lại (script nội trang có thể đã bị YouTube dọn).
+  // Panel transcript là đường nhanh và ổn định nhất khi timedtext bị chặn.
   try {
-    pageSourceFromHtml = await fetchWatchPageSource(videoId);
-    const secondTry = await fetchTranscriptViaInnertube({ videoId, pageSource: pageSourceFromHtml });
-    diagnostics.push({ ...secondTry.diagnostic, source: "innertube-transcript-html" });
-    if (secondTry.cues.length > 0) {
-      return { cues: secondTry.cues, source: "innertube-transcript-html", diagnostics };
-    }
-  } catch (error) {
-    diagnostics.push({
-      source: "innertube-transcript-html",
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  // Đường 3: xin caption track qua InnerTube client ANDROID rồi tải timedtext.
-  try {
-    const android = await fetchCaptionTracksViaAndroid({
-      videoId,
-      pageSource: pageSourceFromHtml || collectPageSource(document),
-      fetchImpl: fetch,
-    });
-    diagnostics.push(android.diagnostic);
-    for (const track of android.tracks.slice(0, 3)) {
-      try {
-        const cues = await fetchCuesForTrack(track);
-        diagnostics.push({ source: `timedtext-android:${track.languageCode}`, ok: true, cues: cues.length });
-        return { cues, source: "timedtext-android", diagnostics };
-      } catch (error) {
-        diagnostics.push({
-          source: `timedtext-android:${track.languageCode}`,
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-  } catch (error) {
-    diagnostics.push({
-      source: "player-android",
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
-
-  // Đường 4: mở panel transcript trên giao diện rồi đọc DOM.
-  try {
-    const cues = await readTranscriptFromPage(document, CUE_TIMEOUT_MS);
+    const cues = await readTranscriptFromPage(document, PANEL_TIMEOUT_MS);
     diagnostics.push({ source: "transcript-panel", ok: true, cues: cues.length });
     return { cues, source: "transcript-panel", diagnostics };
   } catch (error) {
-    diagnostics.push({
-      source: "transcript-panel",
-      ok: false,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    diagnostics.push({ source: "transcript-panel", ok: false, error: message(error) });
   }
 
-  throw new CaptionUnavailableError(diagnostics.map((item) => `${item.source}: ${item.error ?? "?"}`).join(" | "));
+  const fromPageTranscript = await fetchTranscriptViaInnertube({ videoId, pageSource });
+  diagnostics.push(fromPageTranscript.diagnostic);
+  if (fromPageTranscript.cues.length > 0) {
+    return { cues: fromPageTranscript.cues, source: "innertube-transcript", diagnostics };
+  }
+
+  let htmlSource = "";
+  try {
+    htmlSource = await fetchWatchPageSource(videoId);
+  } catch (error) {
+    diagnostics.push({ source: "html", ok: false, error: message(error) });
+  }
+  if (htmlSource !== "") {
+    const fromHtml = await fetchTranscriptViaInnertube({ videoId, pageSource: htmlSource });
+    diagnostics.push({ ...fromHtml.diagnostic, source: "innertube-transcript-html" });
+    if (fromHtml.cues.length > 0) {
+      return { cues: fromHtml.cues, source: "innertube-transcript-html", diagnostics };
+    }
+  }
+
+  const player = await fetchCaptionTracksViaPlayer({
+    videoId,
+    pageSource: htmlSource || pageSource,
+    fetchImpl: fetch,
+  });
+  diagnostics.push(...player.diagnostics);
+  for (const track of player.tracks.slice(0, 4)) {
+    const label = `timedtext-player:${track.languageCode}${track.kind === "asr" ? "/asr" : ""}`;
+    const cues = await tryTrack(track, label);
+    if (cues) return { cues, source: "timedtext-player", diagnostics };
+  }
+
+  return { cues: [], source: "", diagnostics };
 }
 
 async function startDubbing(videoId: string): Promise<void> {
@@ -268,6 +251,17 @@ async function startDubbing(videoId: string): Promise<void> {
   try {
     const loaded = await loadCues(videoId);
     diagnostics = loaded.diagnostics;
+    if (loaded.cues.length === 0) {
+      publishStatus({
+        videoId,
+        source: "",
+        diagnostics,
+        error:
+          diagnostics.map((item) => `${item.source}: ${item.error ?? "?"}`).join(" | ") ||
+          "không lấy được caption",
+      });
+      return;
+    }
     const { cues, source } = loaded;
     if (!enabled) return;
 
