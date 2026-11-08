@@ -30,7 +30,7 @@ Chỉ chạy trên `www.youtube.com`. Không hỗ trợ `m.youtube.com`, video n
 
 1. Tải file zip bản mới nhất:
 
-   https://github.com/BuiCongDat2905/yt-dub-free/raw/main/release/yt-dub-free-0.2.0-chrome.zip
+   https://github.com/BuiCongDat2905/yt-dub-free/raw/main/release/yt-dub-free-0.2.1-chrome.zip
 
    File ~19 MB (đã gồm WASM của Piper/ONNX để chạy offline, không tải code từ CDN).
 

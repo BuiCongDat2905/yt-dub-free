@@ -4,7 +4,7 @@ export default defineConfig({
   manifest: {
     name: "YT Dub Free",
     description: "Long tieng YouTube sang tieng Viet bang dich va TTS mien phi.",
-    version: "0.2.0",
+    version: "0.2.1",
     icons: {
       16: "icon/16.png",
       32: "icon/32.png",
@@ -19,8 +19,7 @@ export default defineConfig({
       },
     },
     content_security_policy: {
-      extension_pages:
-        "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; worker-src 'self' blob:;",
+      extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
     },
     host_permissions: [
       "*://www.youtube.com/*",
