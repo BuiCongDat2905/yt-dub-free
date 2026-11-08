@@ -91,9 +91,25 @@ export function ensureCaptionsEnabled(doc: Document = document): boolean {
   return true;
 }
 
+/** Trạng thái CC hiện tại: true = đang bật, false = đang tắt, null = không có nút. */
+export function getCaptionButtonState(doc: Document = document): boolean | null {
+  const button = doc.querySelector<HTMLElement>(".ytp-subtitles-button");
+  if (!button) return null;
+  return button.getAttribute("aria-pressed") === "true";
+}
+
+/** Khôi phục đúng trạng thái CC người dùng đã đặt trước khi extension can thiệp. */
+export function restoreCaptionButtonState(wasOn: boolean | null, doc: Document = document): void {
+  if (wasOn === null) return;
+  const button = doc.querySelector<HTMLElement>(".ytp-subtitles-button");
+  if (!button) return;
+  const isOn = button.getAttribute("aria-pressed") === "true";
+  if (isOn !== wasOn) button.click();
+}
+
 /**
- * Ép trang gọi lại timedtext: tắt CC rồi bật lại.
- * Cần vì YouTube nhớ trạng thái CC — nếu đã bật sẵn, trang không tải caption lại.
+ * Ép trang gọi lại timedtext: tắt CC rồi bật lại (hoặc bật nếu đang tắt).
+ * Gọi `getCaptionButtonState` trước để khôi phục đúng trạng thái sau đó.
  */
 export async function triggerCaptionRequest(doc: Document = document): Promise<void> {
   const button = doc.querySelector<HTMLElement>(".ytp-subtitles-button");

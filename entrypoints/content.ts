@@ -27,6 +27,8 @@ import { fetchCuesForTrack, pickTrack } from "@/lib/youtube/captions";
 import {
   armCapturedCaptions,
   fetchCapturedCaptions,
+  getCaptionButtonState,
+  restoreCaptionButtonState,
   triggerCaptionRequest,
 } from "@/lib/youtube/capturedCaptions";
 import { getCaptionTracks } from "@/lib/youtube/innertube";
@@ -108,6 +110,7 @@ let liveHandle: LiveCaptionHandle | null = null;
 let liveTicker: number | null = null;
 let currentVideo: string | null = null;
 let session: ActiveSession | null = null;
+let captionStateBefore: boolean | null = null;
 const editorPanel = new SubtitleEditorPanel();
 const overlay = new SubtitleOverlay();
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -149,6 +152,12 @@ function render(): void {
   }
 }
 
+/** Ẩn badge khi vào fullscreen để không đè lên nút điều khiển. */
+function updateBadgeVisibility(): void {
+  if (!host) return;
+  host.style.display = document.fullscreenElement ? "none" : "";
+}
+
 function mount(): void {
   if (host) return;
   host = document.createElement("div");
@@ -165,6 +174,9 @@ function mount(): void {
   });
 
   document.documentElement.appendChild(host);
+  document.addEventListener("fullscreenchange", updateBadgeVisibility);
+  document.addEventListener("webkitfullscreenchange", updateBadgeVisibility);
+  updateBadgeVisibility();
   render();
 }
 
@@ -196,12 +208,16 @@ function stopDubbing(): void {
   audioElement = null;
   session = null;
   editorPanel.close();
+  restoreCaptionButtonState(captionStateBefore);
+  captionStateBefore = null;
   overlay.destroy();
   new SystemTtsProvider().cancel();
 }
 
 function unmount(): void {
   stopDubbing();
+  document.removeEventListener("fullscreenchange", updateBadgeVisibility);
+  document.removeEventListener("webkitfullscreenchange", updateBadgeVisibility);
   host?.remove();
   host = null;
   button = null;
@@ -418,11 +434,14 @@ async function startDubbing(videoId: string): Promise<void> {
 
   try {
     // Bật CC + ép trang gọi timedtext; hook MAIN world bắt URL đó.
+    // Ghi nhớ trạng thái CC trước khi can thiệp để trả lại đúng như người dùng đặt.
     armCapturedCaptions();
+    captionStateBefore = getCaptionButtonState(document);
     await triggerCaptionRequest(document);
     await sleep(400);
     const loaded = await loadCues(videoId);
     diagnostics = loaded.diagnostics;
+    if (loaded.cues.length > 0) restoreCaptionButtonState(captionStateBefore);
     if (FORCE_LIVE_MODE || loaded.cues.length === 0) {
       await startLiveMode(video, videoId, diagnostics);
       return;

@@ -4,7 +4,7 @@ export default defineConfig({
   manifest: {
     name: "YT Dub Free",
     description: "Long tieng YouTube sang tieng Viet bang dich va TTS mien phi.",
-    version: "0.2.1",
+    version: "0.2.2",
     icons: {
       16: "icon/16.png",
       32: "icon/32.png",
