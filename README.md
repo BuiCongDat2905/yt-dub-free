@@ -9,12 +9,14 @@ Repo: https://github.com/BuiCongDat2905/yt-dub-free
 ## Tính năng
 
 - Lấy caption/transcript của video YouTube, cắt thành câu dễ đọc, bỏ cụm bị lặp ở chỗ ngắt.
-- Dịch sang tiếng Việt bằng Google Translate công khai, có cache.
-- Tổng hợp giọng đọc tiếng Việt bằng Google TTS, có cache audio.
+- Dịch sang tiếng Việt bằng Google Translate công khai (endpoint `clients5.google.com`, không dùng `gtx`), có cache.
+- Tổng hợp giọng đọc tiếng Việt: mặc định Google TTS nữ; tuỳ chọn **Piper offline nữ** (ONNX/WASM, không rate limit, tải model ~63 MB một lần).
 - Phát audio lồng tiếng bám theo đồng hồ video: seek, pause, đổi tốc độ đều khớp; không phát lại câu đã đọc xong.
 - Hạ âm lượng tiếng gốc. Phụ đề tiếng Việt trên player là tuỳ chọn, **mặc định tắt**.
-- Hotkey `Alt+D`; popup chỉnh âm lượng gốc/lồng, bật phụ đề, tự bật khi mở video.
-- Cache trong IndexedDB nên lần phát lại không gọi mạng.
+- **Panel sửa bản dịch** trong trang YouTube, lưu theo `videoId`; sửa câu nào thì tổng hợp lại audio câu đó.
+- **Log lỗi cục bộ**: lưu 80 dòng gần nhất, popup có nút tải JSON/xoá; không gửi đi đâu.
+- Hotkey `Alt+D`; popup chỉnh âm lượng gốc/lồng, chọn giọng, bật phụ đề, tự bật khi mở video.
+- Cache trong IndexedDB nên lần phát lại không gọi mạng. Cache audio tự dọn khi vượt 40 MB.
 
 Chỉ chạy trên `www.youtube.com`. Không hỗ trợ `m.youtube.com`, video nhúng, hay site khác.
 
@@ -28,7 +30,9 @@ Chỉ chạy trên `www.youtube.com`. Không hỗ trợ `m.youtube.com`, video n
 
 1. Tải file zip bản mới nhất:
 
-   https://github.com/BuiCongDat2905/yt-dub-free/raw/main/release/yt-dub-free-0.1.0-chrome.zip
+   https://github.com/BuiCongDat2905/yt-dub-free/raw/main/release/yt-dub-free-0.2.0-chrome.zip
+
+   File ~19 MB (đã gồm WASM của Piper/ONNX để chạy offline, không tải code từ CDN).
 
 2. Giải nén ra **một thư mục cố định**, ví dụ `C:\Users\<tên-bạn>\EdgeExtensions\yt-dub-free`.
    Thư mục này phải còn sau khi cài, đừng xoá. Bên trong phải thấy `manifest.json`.
@@ -65,7 +69,9 @@ Bản build sẵn dùng cho Edge trên máy này nằm ở `C:\Users\datco\EdgeE
 
 - `Alt+D`: bật/tắt lồng tiếng.
 - Badge dưới player: `OFF` / `Đang chuẩn bị…` / `ON`.
-- Popup: kéo **Tiếng gốc** (mặc định `0.10`) và **Tiếng lồng** (`1.00`), tick **Hiện phụ đề tiếng Việt** (mặc định tắt), tick **Tự bật khi mở video**.
+- Popup: kéo **Tiếng gốc** (mặc định `0.10`) và **Tiếng lồng** (`1.00`), chọn **Giọng đọc** (Google nữ mặc định, Piper offline thử nghiệm), tick **Hiện phụ đề tiếng Việt** (mặc định tắt), tick **Tự bật khi mở video**.
+- Nút **Sửa bản dịch hiện tại**: mở panel bên phải trang YouTube khi đang lồng tiếng; sửa câu rồi bấm **Áp dụng & phát**.
+- Nút **Tải log lỗi** / **Xoá log** trong popup.
 
 ## Cách hoạt động
 

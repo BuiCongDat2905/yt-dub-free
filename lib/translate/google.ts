@@ -1,4 +1,4 @@
-const ENDPOINT = "https://translate.googleapis.com/translate_a/single";
+const ENDPOINT = "https://clients5.google.com/translate_a/t";
 const MAX_QUERY_CHARS = 4000;
 
 export interface TranslationCache {
@@ -18,23 +18,39 @@ export interface TranslateBatchOptions {
 
 export function buildTranslateUrl(text: string, targetLang: string, sourceLang = "auto"): string {
   const url = new URL(ENDPOINT);
-  url.searchParams.set("client", "gtx");
+  url.searchParams.set("client", "dict-chrome-ex");
   url.searchParams.set("sl", sourceLang);
   url.searchParams.set("tl", targetLang);
-  url.searchParams.set("dt", "t");
   url.searchParams.set("q", text);
   return url.toString();
 }
 
-/** translate_a/single trả [[["câu dịch","câu gốc",...],...],...]; ghép các mảnh theo thứ tự. */
+/**
+ * Hai định dạng đều được chấp nhận:
+ * - `clients5` (client dict-chrome-ex): `[["câu dịch","en"], ...]`
+ * - `googleapis` cũ: `[[["câu dịch","câu gốc",...],...],...]`
+ */
 export function parseGoogleResponse(payload: unknown): string {
-  if (!Array.isArray(payload)) return "";
-  const segments = payload[0];
-  if (!Array.isArray(segments)) return "";
-  return segments
-    .map((segment) => (Array.isArray(segment) && typeof segment[0] === "string" ? segment[0] : ""))
-    .join("")
-    .trim();
+  if (!Array.isArray(payload) || payload.length === 0) return "";
+
+  const first = payload[0];
+  if (typeof first === "string") return first.trim();
+
+  if (Array.isArray(first) && typeof first[0] === "string") {
+    return payload
+      .map((item) => (Array.isArray(item) && typeof item[0] === "string" ? item[0] : ""))
+      .join("")
+      .trim();
+  }
+
+  const segments = first;
+  if (Array.isArray(segments)) {
+    return segments
+      .map((segment) => (Array.isArray(segment) && typeof segment[0] === "string" ? segment[0] : ""))
+      .join("")
+      .trim();
+  }
+  return "";
 }
 
 export function splitForTranslation(text: string, maxChars = MAX_QUERY_CHARS): string[] {
@@ -54,7 +70,10 @@ export function splitForTranslation(text: string, maxChars = MAX_QUERY_CHARS): s
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function translateOnce(text: string, options: Required<Pick<TranslateBatchOptions, "targetLang">> & TranslateBatchOptions): Promise<string> {
+async function translateOnce(
+  text: string,
+  options: Required<Pick<TranslateBatchOptions, "targetLang">> & TranslateBatchOptions,
+): Promise<string> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const sourceLang = options.sourceLang ?? "auto";
   const attempts = (options.retries ?? 2) + 1;

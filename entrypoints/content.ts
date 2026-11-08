@@ -1,6 +1,8 @@
 import { audioCache } from "@/lib/cache/audioCache";
 import { translationCache } from "@/lib/cache/idb";
 import { ALLOWED_HOST, APP_NAME, BADGE_ID, PREFERRED_CAPTION_LANG, TARGET_LANG } from "@/lib/config";
+import { loadEdits, saveEdits } from "@/lib/editor/store";
+import { logEvent } from "@/lib/log";
 import { DubEngine } from "@/lib/player/engine";
 import { PrefetchController } from "@/lib/player/prefetch";
 import { prepareDubbing } from "@/lib/pipeline";
@@ -15,7 +17,11 @@ import { CaptionUnavailableError, type CaptionTrack, type Cue } from "@/lib/subt
 import { translateBatch } from "@/lib/translate/google";
 import { createBackgroundFetch } from "@/lib/tts/backgroundFetch";
 import { GoogleTtsProvider } from "@/lib/tts/google";
+import { PiperTtsProvider } from "@/lib/tts/piper";
+import { PreferredTtsProvider } from "@/lib/tts/preferred";
+import type { TtsProvider } from "@/lib/tts/provider";
 import { SystemTtsProvider } from "@/lib/tts/system";
+import { SubtitleEditorPanel, formatTime } from "@/lib/ui/editorPanel";
 import { SubtitleOverlay } from "@/lib/ui/overlay";
 import { fetchCuesForTrack, pickTrack } from "@/lib/youtube/captions";
 import {
@@ -76,7 +82,17 @@ interface CaptionStatus {
   live?: { lines: number; cuts?: number; skips?: number; tracker?: LiveCaptionStats; debug?: unknown };
   diagnostics?: TranscriptDiagnostic[];
   settings?: Settings;
+  voice?: string;
   error?: string;
+}
+
+interface ActiveSession {
+  videoId: string;
+  cues: Cue[];
+  translated: string[];
+  audioByIndex: Array<Uint8Array | null>;
+  provider: TtsProvider;
+  engine: DubEngine;
 }
 
 let settings: Settings = { ...DEFAULT_SETTINGS };
@@ -91,8 +107,19 @@ let prefetch: PrefetchController | null = null;
 let liveHandle: LiveCaptionHandle | null = null;
 let liveTicker: number | null = null;
 let currentVideo: string | null = null;
+let session: ActiveSession | null = null;
+const editorPanel = new SubtitleEditorPanel();
 const overlay = new SubtitleOverlay();
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+/** Piper offline (nữ) là mặc định; lỗi thì rơi về Google TTS (nữ). */
+function createTtsProvider(): TtsProvider {
+  const google = new GoogleTtsProvider({ lang: TARGET_LANG, fetchImpl: createBackgroundFetch() });
+  if (settings.voiceEngine === "piper") {
+    return new PreferredTtsProvider(new PiperTtsProvider(), google);
+  }
+  return google;
+}
 
 function publishStatus(status: CaptionStatus): void {
   document.documentElement.dataset.ytdubfree = JSON.stringify({ ...status, settings });
@@ -167,6 +194,8 @@ function stopDubbing(): void {
   engine?.destroy();
   engine = null;
   audioElement = null;
+  session = null;
+  editorPanel.close();
   overlay.destroy();
   new SystemTtsProvider().cancel();
 }
@@ -293,7 +322,7 @@ async function startLiveMode(
   videoId: string,
   diagnostics: TranscriptDiagnostic[],
 ): Promise<void> {
-  const provider = new GoogleTtsProvider({ lang: TARGET_LANG, fetchImpl: createBackgroundFetch() });
+  const provider = createTtsProvider();
   const liveCues: Cue[] = [];
   const liveAudio: Array<Uint8Array | null> = [];
   const translated: string[] = [];
@@ -401,8 +430,7 @@ async function startDubbing(videoId: string): Promise<void> {
     const { cues, source } = loaded;
     if (!enabled) return;
 
-    const ttsFetch = createBackgroundFetch();
-    const provider = new GoogleTtsProvider({ lang: TARGET_LANG, fetchImpl: ttsFetch });
+    const provider = createTtsProvider();
     const prepared = await prepareDubbing({
       cues,
       provider,
@@ -413,6 +441,15 @@ async function startDubbing(videoId: string): Promise<void> {
       fetchImpl: fetch,
     });
     if (!enabled) return;
+
+    // Áp dụng bản dịch đã sửa tay từ lần trước (nếu có).
+    const savedEdits = await loadEdits(videoId);
+    for (const [key, text] of Object.entries(savedEdits)) {
+      const index = Number(key);
+      if (!Number.isInteger(index) || index < 0 || index >= prepared.cues.length) continue;
+      prepared.translated[index] = text;
+      prepared.audioByIndex[index] = null;
+    }
 
     audioElement = new Audio();
     audioElement.preload = "auto";
@@ -450,6 +487,15 @@ async function startDubbing(videoId: string): Promise<void> {
     overlay.attach(video);
     engine.start();
 
+    session = {
+      videoId,
+      cues: prepared.cues,
+      translated: prepared.translated,
+      audioByIndex: prepared.audioByIndex,
+      provider,
+      engine,
+    };
+
     publishStatus({
       videoId,
       source,
@@ -457,17 +503,62 @@ async function startDubbing(videoId: string): Promise<void> {
       segments: prepared.stats.cues,
       stats: prepared.stats,
       diagnostics,
+      voice: provider.name,
     });
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await logEvent("error", "startDubbing", message, { diagnostics });
     publishStatus({
       videoId,
       diagnostics,
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     });
   } finally {
     busy = false;
     render();
   }
+}
+
+function openEditor(): void {
+  if (!session) return;
+  const active = session;
+  editorPanel.open({
+    title: `Sửa bản dịch · ${active.cues.length} câu`,
+    rows: active.cues.map((cue, index) => ({
+      index,
+      time: formatTime(cue.start),
+      source: cue.text,
+      text: active.translated[index] ?? "",
+    })),
+    onApply: applyEditorChanges,
+  });
+}
+
+async function applyEditorChanges(changes: Record<number, string>): Promise<void> {
+  const active = session;
+  if (!active) return;
+
+  const saved = await loadEdits(active.videoId);
+  const failed: number[] = [];
+  for (const [key, rawValue] of Object.entries(changes)) {
+    const index = Number(key);
+    const text = rawValue.trim();
+    if (!Number.isInteger(index) || index < 0 || index >= active.cues.length || text === "") continue;
+    active.translated[index] = text;
+    active.audioByIndex[index] = null;
+    active.engine.invalidate(index);
+    saved[index] = text;
+    try {
+      const audio = await active.provider.synthesize(text);
+      active.audioByIndex[index] = audio;
+      await audioCache.set(`${TARGET_LANG}|${text}`, audio);
+    } catch (error) {
+      failed.push(index);
+      await logEvent("warn", "editor", `tổng hợp lại câu ${index} thất bại`, error);
+    }
+  }
+  await saveEdits(active.videoId, saved);
+  if (failed.length > 0) throw new Error(`đã lưu, ${failed.length} câu chưa có audio`);
 }
 
 async function onToggle(): Promise<void> {
@@ -530,7 +621,9 @@ function watchCommands(): void {
     }
   ).chrome?.runtime;
   runtime?.onMessage?.addListener((message) => {
-    if ((message as { type?: string } | null)?.type === "ytdubfree:toggle") void onToggle();
+    const type = (message as { type?: string } | null)?.type;
+    if (type === "ytdubfree:toggle") void onToggle();
+    if (type === "ytdubfree:open-editor") openEditor();
   });
 
   window.addEventListener("keydown", (event) => {
@@ -549,6 +642,12 @@ async function init(): Promise<void> {
 
   sync();
   watchCommands();
+  window.addEventListener("error", (event) => {
+    void logEvent("error", "window", event.message, event.filename ? `${event.filename}:${event.lineno}` : undefined);
+  });
+  window.addEventListener("unhandledrejection", (event) => {
+    void logEvent("error", "promise", String(event.reason instanceof Error ? event.reason.message : event.reason));
+  });
   document.addEventListener("visibilitychange", () => prefetch?.setPaused(document.hidden));
   document.addEventListener("yt-navigate-finish", () => sync());
   window.addEventListener("popstate", () => sync());

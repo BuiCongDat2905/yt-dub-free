@@ -1,11 +1,12 @@
 {
   "name": "yt-dub-free",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
-    "build": "wxt build",
+    "vendor:piper": "node scripts/vendor-piper-assets.mjs",
+    "build": "npm run vendor:piper && wxt build",
     "zip": "wxt zip",
     "compile": "tsc --noEmit",
     "test": "node --test tests",
@@ -13,7 +14,11 @@
     "smoke": "node scripts/smoke-extension.mjs"
   },
   "devDependencies": {
+    "@diffusionstudio/piper-wasm": "^1.0.0",
     "typescript": "^7.0.2",
     "wxt": "^0.21.5"
+  },
+  "dependencies": {
+    "@diffusionstudio/vits-web": "^1.0.3"
   }
 }

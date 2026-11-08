@@ -1,4 +1,4 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
@@ -11,21 +11,30 @@ import { hashText } from "../lib/cache/idb.ts";
 
 const okResponse = (translated) => ({
   ok: true,
-  json: async () => [[[translated, "orig", null, null, 1]], null, "en"],
+  json: async () => [[translated, "en"]],
 });
 
-test("buildTranslateUrl mã hoá câu và đặt đủ tham số", () => {
+test("buildTranslateUrl dùng client dict-chrome-ex, không phải gtx", () => {
   const url = new URL(buildTranslateUrl("xin chào & tạm biệt", "vi"));
-  assert.equal(url.origin, "https://translate.googleapis.com");
-  assert.equal(url.pathname, "/translate_a/single");
-  assert.equal(url.searchParams.get("client"), "gtx");
+  assert.equal(url.origin, "https://clients5.google.com");
+  assert.equal(url.pathname, "/translate_a/t");
+  assert.equal(url.searchParams.get("client"), "dict-chrome-ex");
   assert.equal(url.searchParams.get("tl"), "vi");
   assert.equal(url.searchParams.get("sl"), "auto");
-  assert.equal(url.searchParams.get("dt"), "t");
   assert.equal(url.searchParams.get("q"), "xin chào & tạm biệt");
+  assert.equal(url.searchParams.get("dt"), null, "endpoint mới không dùng dt");
 });
 
-test("parseGoogleResponse ghép mảnh và bỏ phần lạ", () => {
+test("parseGoogleResponse đọc định dạng clients5 (cặp câu)", () => {
+  assert.equal(parseGoogleResponse([["Xin chào mọi người.", "en"]]), "Xin chào mọi người.");
+  assert.equal(
+    parseGoogleResponse([["Câu một. ", "en"], ["Câu hai.", "en"]]),
+    "Câu một. Câu hai.",
+  );
+  assert.equal(parseGoogleResponse(["câu đơn", "en"]), "câu đơn");
+});
+
+test("parseGoogleResponse vẫn đọc định dạng googleapis cũ", () => {
   assert.equal(
     parseGoogleResponse([[["Xin ", "Xin "], ["chào", null], [" bạn", 123]], null, "en"]),
     "Xin chào bạn",

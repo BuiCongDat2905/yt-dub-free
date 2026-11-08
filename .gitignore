@@ -6,3 +6,5 @@ node_modules
 spike/*.mp3
 spike/out.mp3
 docs/*.tmp.png
+public/piper
+public/ort

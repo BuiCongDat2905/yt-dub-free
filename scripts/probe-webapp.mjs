@@ -1,0 +1,11 @@
+﻿const url = new URL("https://translate.google.com/translate_a/single");
+url.searchParams.set("client", "webapp");
+url.searchParams.set("sl", "auto");
+url.searchParams.set("tl", "vi");
+url.searchParams.set("hl", "vi");
+url.searchParams.set("dt", "t");
+url.searchParams.set("q", "Hello everyone, today we test the dubbing extension.");
+const res = await fetch(url);
+const raw = await res.text();
+console.log("webapp status=" + res.status + " bytes=" + raw.length + " acao=" + (res.headers.get("access-control-allow-origin") ?? "(none)"));
+console.log("body=" + raw.slice(0, 220));

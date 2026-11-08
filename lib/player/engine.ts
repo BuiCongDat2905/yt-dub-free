@@ -192,6 +192,16 @@ export class DubEngine {
     this.scheduler.reset();
   }
 
+  /** Xoá audio đã cache của một cue (sau khi sửa bản dịch). */
+  invalidate(index: number): void {
+    const url = this.objectUrls.get(index);
+    if (url) {
+      URL.revokeObjectURL(url);
+      this.objectUrls.delete(index);
+    }
+    this.finished.delete(index);
+  }
+
   destroy(): void {
     this.stop();
     for (const url of this.objectUrls.values()) URL.revokeObjectURL(url);

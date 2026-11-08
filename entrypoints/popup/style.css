@@ -60,6 +60,35 @@ kbd {
   gap: 8px;
 }
 
+.row select {
+  flex: 1;
+  background: #0f1218;
+  color: #e6e8ee;
+  border: 1px solid #2b3040;
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: 12px system-ui, sans-serif;
+}
+
+.row.buttons {
+  gap: 8px;
+}
+
+.row.buttons button {
+  flex: 1;
+  background: #242833;
+  color: #e6e8ee;
+  border: 1px solid #2b3040;
+  border-radius: 8px;
+  padding: 7px 8px;
+  font: 600 11px system-ui, sans-serif;
+  cursor: pointer;
+}
+
+.row.buttons button:hover {
+  border-color: #2ea043;
+}
+
 .status {
   margin: 4px 0 0;
   font-size: 11px;

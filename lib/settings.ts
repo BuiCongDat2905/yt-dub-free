@@ -1,9 +1,13 @@
+export type VoiceEngine = "piper" | "google";
+
 export interface Settings {
   enabled: boolean;
   originalVolume: number;
   dubVolume: number;
   /** Hiện phụ đề tiếng Việt đè lên video. Mặc định tắt. */
   showSubtitle: boolean;
+  /** Giọng đọc: Piper offline (nữ) hoặc Google TTS (nữ). */
+  voiceEngine: VoiceEngine;
 }
 
 export const SETTINGS_KEY = "ytdubfree.settings";
@@ -13,6 +17,7 @@ export const DEFAULT_SETTINGS: Settings = {
   originalVolume: 0.1,
   dubVolume: 1,
   showSubtitle: false,
+  voiceEngine: "google",
 };
 
 function clamp01(value: unknown, fallback: number): number {
@@ -28,6 +33,7 @@ export function normalizeSettings(input: unknown): Settings {
     originalVolume: clamp01(raw.originalVolume, DEFAULT_SETTINGS.originalVolume),
     dubVolume: clamp01(raw.dubVolume, DEFAULT_SETTINGS.dubVolume),
     showSubtitle: typeof raw.showSubtitle === "boolean" ? raw.showSubtitle : DEFAULT_SETTINGS.showSubtitle,
+    voiceEngine: raw.voiceEngine === "google" || raw.voiceEngine === "piper" ? raw.voiceEngine : DEFAULT_SETTINGS.voiceEngine,
   };
 }
 

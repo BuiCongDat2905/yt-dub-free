@@ -131,8 +131,9 @@ try {
   console.log("dataset_after_click=" + String(early).slice(0, 500));
 
   const samples = [];
+  const targetAudio = Number(process.argv[4] ?? "3");
   let firstStatus = null;
-  for (let step = 0; step < 45; step += 1) {
+  for (let step = 0; step < 180; step += 1) {
     await sleep(1000);
     const status = await readDataset();
     if (!status) continue;
@@ -161,7 +162,8 @@ try {
       emitted: tracker.emitted ?? -1,
       cc: tracker.ccEnabled === true,
     });
-    if ((live.lines ?? 0) >= 5 && (status.stats?.audio ?? 0) >= 3) break;
+    if ((live.lines ?? 0) >= 5 && (status.stats?.audio ?? 0) >= targetAudio) break;
+    if ((status.stats?.audio ?? 0) >= targetAudio && (status.live?.lines ?? 0) === 0 && status.source) break;
   }
 
   const label = speed === 1 ? "1x" : `${speed}x`;
